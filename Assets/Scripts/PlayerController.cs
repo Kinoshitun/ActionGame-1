@@ -1,118 +1,145 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 
+[RequireComponent(typeof(CharacterController))]
 public class PlayerController : MonoBehaviour
 {
     [Header("Movement Settings")]
-    [SerializeField] private float moveSpeed = 5f;
+    [SerializeField] private float moveSpeed = 6f; // 少し速くしました
     [SerializeField] private float dashSpeedMultiplier = 2f;
-    [SerializeField] private float rotationSmoothTime = 0.12f; //回転のスムーズさ
+    [Tooltip("移動入力の反応速度。小さいほどキビキビ、大きいと慣性がつく")]
+    [SerializeField] private float movementSmoothTime = 0.05f; 
+    [Tooltip("回転速度。大きいほど速く向く")]
+    [SerializeField] private float rotationSpeed = 15f; // Slerp用に値を調整
 
     [Header("Jump & Gravity")]
-    [SerializeField] private float jumpForce = 5f;
-    [SerializeField] private float gravityValue = -9.8f;
-    [SerializeField] private float gravityMultiplier = 2.0f;
+    [SerializeField] private float jumpForce = 1.5f; // 高さ(m)指定に変更
+    [SerializeField] private float gravityValue = -15.0f; // キビキビさせるため重力強め
+    [SerializeField] private float gravityMultiplier = 2.0f; // 落下時はさらに倍
 
     [Header("Ground Check")]
     [SerializeField] private Transform groundCheck;
-    [SerializeField] private float groundDistance = 0.2f;
+    [SerializeField] private float groundRadius = 0.2f;
     [SerializeField] private LayerMask groundMask;
 
     [Header("References")]
     [SerializeField] private Transform cameraTransform;
 
-    //Internal State
-    private CharacterController characterController;
+    // Components
+    private CharacterController controller;
+
+    // State
     private Vector2 moveInput;
-    private Vector3 currentVelocity;
+    private Vector3 currentVelocity; // SmoothDamp用
+    private Vector3 moveDirectionVelocity; // SmoothDamp用
     private float verticalVelocity;
     private bool isGrounded;
     private bool isDashing;
-
-    //Rotation smoothing variables
-    private float targetRotation;
-    private float rotationVelocity;
+    private float currentMaxSpeed;
 
     void Start()
     {
-        characterController = GetComponent<CharacterController>();
-        if (characterController == null)
-        {
-            Debug.Log("CharacterControllerコンポーネントが見つかりません");
-            enabled = false;
-        }
+        controller = GetComponent<CharacterController>();
 
+        // カメラ自動取得
         if (cameraTransform == null && Camera.main != null)
-        {
             cameraTransform = Camera.main.transform;
-        }
+
+        currentMaxSpeed = moveSpeed;
     }
 
     void Update()
     {
-        HandleGroundCheck();
+        HandleGround();
         HandleGravity();
-        HandleMovenment();
+        HandleMovement();
     }
 
-    private void HandleGroundCheck()
+    private void HandleGround()
     {
-        //SphereCheckが設定されていれば優先、なければCCの機能を使う
+        // 地面判定
         if (groundCheck != null)
         {
-            isGrounded = Physics.CheckSphere(groundCheck.position, groundDistance, groundMask);
+            isGrounded = Physics.CheckSphere(groundCheck.position, groundRadius, groundMask);
         }
         else
         {
-            isGrounded = characterController.isGrounded;
+            isGrounded = controller.isGrounded;
+        }
+
+        // ▼【重要】接地時は重力をリセットする（これをしないと無限に加速して振動する）
+        if (isGrounded && verticalVelocity < 0)
+        {
+            verticalVelocity = -2f; // 0ではなく-2にして、坂道などで浮かないように吸着させる
         }
     }
 
     private void HandleGravity()
     {
-        //重力の適用
-        //落下中（verticalVelocity < 0）は重力を強くするとゲームの手触りがよくなることが多い
-        float currentGravity = (verticalVelocity < 0 && !isGrounded)
-            ? gravityValue * gravityMultiplier
+        // 落下中は重力を強くして、ジャンプの挙動をキビキビさせる（マリオ方式）
+        float gravity = (verticalVelocity < 0 && !isGrounded) 
+            ? gravityValue * gravityMultiplier 
             : gravityValue;
 
-        verticalVelocity += currentGravity * Time.deltaTime;
+        verticalVelocity += gravity * Time.deltaTime;
     }
 
-    private void HandleMovenment()
+    private void HandleMovement()
     {
-        //入力がない場合は処理をスキップ（重力移動のみ適用）
-        if (moveInput.magnitude < 0.1f)
+        // 1. 入力ベクトルの計算
+        Vector3 targetDirection = Vector3.zero;
+
+        // 入力がある場合のみ方向計算
+        if (moveInput.magnitude >= 0.1f)
         {
-            characterController.Move(new Vector3(0, verticalVelocity, 0) * Time.deltaTime);
-            return;
+            // カメラの向きを基準に変換（Y軸の影響を消して正規化）
+            Vector3 camForward = Vector3.Scale(cameraTransform.forward, new Vector3(1, 0, 1)).normalized;
+            Vector3 camRight = Vector3.Scale(cameraTransform.right, new Vector3(1, 0, 1)).normalized;
+            
+            targetDirection = (camForward * moveInput.y + camRight * moveInput.x).normalized;
         }
 
-        
+        //2.速度設定の更新
+        //地面にいるときだけダッシュか歩きかを判断して、最高速度を切り替える。
+        if (isGrounded)
+        {
+            if (isDashing)
+            {
+                currentMaxSpeed = moveSpeed * dashSpeedMultiplier;
+            }
+            else
+            {
+                currentMaxSpeed = moveSpeed;
+            }
+        }
 
-        //1.カメラの向きを基準に入力方向を変換
-        //Atan2で入力角度を計算し、カメラのY軸回転を加算する
-        float targetAngle = Mathf.Atan2(moveInput.x, moveInput.y) * Mathf.Rad2Deg + cameraTransform.eulerAngles.y;
+        // 2. 移動速度のスムージング（慣性処理）
+        // 入力がない時は (0,0,0) に向かって減速する
+        float targetSpeedVal = (moveInput.magnitude < 0.1f) ? 0f : currentMaxSpeed;
 
-        //2.プレイヤーの回転（スムージング込み）
-        float angle = Mathf.SmoothDampAngle(transform.eulerAngles.y, targetAngle, ref rotationVelocity, rotationSmoothTime);
-        transform.rotation = Quaternion.Euler(0f, angle, 0f);
+        // キャラクターの進行方向ベクトル自体をスムーズに変化させる
+        // これにより「急な方向転換」をした時に、一瞬だけ速度が落ちて弧を描くような自然な挙動になる
+        currentVelocity = Vector3.SmoothDamp(currentVelocity, targetDirection * targetSpeedVal, ref moveDirectionVelocity, movementSmoothTime);
 
-        //3.移動方向の算出（回転した方向に進む）
-        Vector3 moveDirection = Quaternion.Euler(0f, targetAngle, 0f) * Vector3.forward;
+        // 3. 回転処理
+        // 移動しようとしている方向（currentVelocity）があれば、そちらを向く
+        if (currentVelocity.magnitude > 0.1f)
+        {
+            // 進行方向を向く回転を作成
+            Quaternion targetRotation = Quaternion.LookRotation(currentVelocity.normalized);
+            
+            // Slerpで滑らかに回転させる（RotateTowardsより有機的）
+            transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
+        }
 
-        //4.スピード計算
-        float targetSpeed = isDashing ? moveSpeed * dashSpeedMultiplier : moveSpeed;
+        // 4. 最終適用
+        Vector3 finalMove = currentVelocity;
+        finalMove.y = verticalVelocity; // 重力を合成
 
-        //5.最終的な移動ベクトルの適用（水平移動＋垂直移動）
-        Vector3 finalMove = moveDirection.normalized * targetSpeed;
-        finalMove.y = verticalVelocity;
-
-        characterController.Move(finalMove * Time.deltaTime);
+        controller.Move(finalMove * Time.deltaTime);
     }
 
-    //Input system events ------------------------------------
-
+    // Input System Events
     public void OnMove(InputAction.CallbackContext context)
     {
         moveInput = context.ReadValue<Vector2>();
@@ -122,6 +149,8 @@ public class PlayerController : MonoBehaviour
     {
         if (context.performed && isGrounded)
         {
+            // 高さ指定ジャンプの公式: v = sqrt(h * -2 * g)
+            // jumpForceを「ジャンプする高さ(メートル)」として扱えるように変更
             verticalVelocity = Mathf.Sqrt(jumpForce * -2f * gravityValue);
         }
     }
