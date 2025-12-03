@@ -5,12 +5,15 @@ using UnityEngine.InputSystem;
 public class PlayerController : MonoBehaviour
 {
     [Header("Movement Settings")]
-    [SerializeField] private float moveSpeed = 6f; // 少し速くしました
+    [SerializeField] private float moveSpeed = 6f;
     [SerializeField] private float dashSpeedMultiplier = 2f;
     [Tooltip("移動入力の反応速度。小さいほどキビキビ、大きいと慣性がつく")]
     [SerializeField] private float movementSmoothTime = 0.05f; 
     [Tooltip("回転速度。大きいほど速く向く")]
     [SerializeField] private float rotationSpeed = 15f; // Slerp用に値を調整
+
+    [Header("Visual")]
+    [SerializeField] private Transform characterModel;
 
     [Header("Jump & Gravity")]
     [SerializeField] private float jumpForce = 1.5f; // 高さ(m)指定に変更
@@ -76,6 +79,15 @@ public class PlayerController : MonoBehaviour
 
     private void HandleGravity()
     {
+        // 天井に頭をぶつけたときの処理
+        if ((controller.collisionFlags & CollisionFlags.Above) != 0)
+        {
+            if (verticalVelocity > 0)
+            {
+                verticalVelocity = 0f;
+            }
+        }
+
         // 落下中は重力を強くして、ジャンプの挙動をキビキビさせる（マリオ方式）
         float gravity = (verticalVelocity < 0 && !isGrounded) 
             ? gravityValue * gravityMultiplier 
@@ -95,7 +107,6 @@ public class PlayerController : MonoBehaviour
             // カメラの向きを基準に変換（Y軸の影響を消して正規化）
             Vector3 camForward = Vector3.Scale(cameraTransform.forward, new Vector3(1, 0, 1)).normalized;
             Vector3 camRight = Vector3.Scale(cameraTransform.right, new Vector3(1, 0, 1)).normalized;
-            
             targetDirection = (camForward * moveInput.y + camRight * moveInput.x).normalized;
         }
 
@@ -103,14 +114,8 @@ public class PlayerController : MonoBehaviour
         //地面にいるときだけダッシュか歩きかを判断して、最高速度を切り替える。
         if (isGrounded)
         {
-            if (isDashing)
-            {
-                currentMaxSpeed = moveSpeed * dashSpeedMultiplier;
-            }
-            else
-            {
-                currentMaxSpeed = moveSpeed;
-            }
+            if (isDashing) currentMaxSpeed = moveSpeed * dashSpeedMultiplier;
+            else currentMaxSpeed = moveSpeed;
         }
 
         // 2. 移動速度のスムージング（慣性処理）
@@ -129,7 +134,7 @@ public class PlayerController : MonoBehaviour
             Quaternion targetRotation = Quaternion.LookRotation(currentVelocity.normalized);
             
             // Slerpで滑らかに回転させる（RotateTowardsより有機的）
-            transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
+            characterModel.rotation = Quaternion.Slerp(characterModel.rotation, targetRotation, rotationSpeed * Time.deltaTime);
         }
 
         // 4. 最終適用

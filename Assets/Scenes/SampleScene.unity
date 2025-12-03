@@ -1267,6 +1267,7 @@ MonoBehaviour:
   dashSpeedMultiplier: 2
   movementSmoothTime: 0.1
   rotationSpeed: 15
+  characterModel: {fileID: 1204358687}
   jumpForce: 5
   gravityValue: -15
   gravityMultiplier: 2
