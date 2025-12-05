@@ -1,5 +1,7 @@
+using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.TextCore.Text;
 
 [RequireComponent(typeof(CharacterController))]
 public class PlayerController : MonoBehaviour
@@ -12,8 +14,15 @@ public class PlayerController : MonoBehaviour
     [Tooltip("回転速度。大きいほど速く向く")]
     [SerializeField] private float rotationSpeed = 15f; // Slerp用に値を調整
 
+    [Header("Sura-Strike Settings")]//スラストライク設定
+    [SerializeField] private float maxChargeTime = 1.5f;
+    [SerializeField] private float attackSpeed = 25f;
+    [SerializeField] private float attackDuration = 0.5f;
+    [SerializeField] private float pushPower = 20;
+
     [Header("Visual")]
     [SerializeField] private Transform characterModel;
+    [SerializeField] private Vector3 squashScale = new Vector3(1.5f, 0.5f, 1.5f);
 
     [Header("Jump & Gravity")]
     [SerializeField] private float jumpForce = 1.5f; // 高さ(m)指定に変更
@@ -40,6 +49,17 @@ public class PlayerController : MonoBehaviour
     private bool isDashing;
     private float currentMaxSpeed;
 
+    // Action State
+    private bool isCharging;
+    private float chargeTimer;
+    private bool isAttacking;
+    private float attackTimer;
+    private Vector3 attackDirection;
+
+    //デバッグ用変数
+    private float rawDashInput;
+    private bool isDashButtonPressed => rawDashInput > 0.5f;
+
     void Start()
     {
         controller = GetComponent<CharacterController>();
@@ -49,13 +69,141 @@ public class PlayerController : MonoBehaviour
             cameraTransform = Camera.main.transform;
 
         currentMaxSpeed = moveSpeed;
+        if(characterModel == null) Debug.LogError("【重要】InspectorでCharacter Modelをセットしてください！ここが空だと変形しません！");
     }
 
     void Update()
     {
         HandleGround();
         HandleGravity();
-        HandleMovement();
+
+        //状態遷移の管理
+        HandleChargeLogic();
+
+        if (isAttacking)
+        {
+            HandleAttackMovement();     //突撃中の動き
+        }
+        else if (isCharging)
+        {
+            HandleChargingMovement();   //溜め中の動き
+        }
+        else
+        {
+            HandleMovement();   //通常の動き
+        }
+    }
+
+    void OnGUI()
+    {
+        GUI.color = Color.black;
+        // 左上に、今のボタンの状態と、溜め時間を表示します
+        GUI.Label(new Rect(20, 20, 300, 20), $"Button Pressed: {isDashButtonPressed} (Raw: {rawDashInput:F2})");
+        GUI.Label(new Rect(20, 40, 300, 20), $"Charging: {isCharging}");
+        GUI.Label(new Rect(20, 60, 300, 20), $"Timer: {chargeTimer:F2} / {maxChargeTime}");
+        GUI.Label(new Rect(20, 80, 300, 20), $"Model Scale: {characterModel?.localScale}");
+    }
+
+    private void HandleChargeLogic()
+    {
+        //攻撃中は操作を受け付けない
+        if (isAttacking) return;
+
+        //ボタンが押されている間：チャージ
+        if (isDashButtonPressed)
+        {
+            if (!isCharging)
+            {
+                //押し始めた瞬間
+                isCharging = true;
+                chargeTimer = 0f;
+                currentVelocity = Vector3.zero;
+            }
+
+            //チャージ時間を加算
+            chargeTimer += Time.deltaTime;
+            if (chargeTimer > maxChargeTime) chargeTimer = maxChargeTime;
+        }
+        else //2. ボタンが離される & チャージ中 → 発射
+        {
+            if (isCharging)
+            {
+                isCharging = false;
+                StartAttack();
+            }
+        }
+    }
+
+    private void HandleChargingMovement()
+    {
+        float chargePercent = Mathf.Clamp01(chargeTimer / maxChargeTime);
+
+        //見た目の変形
+        //チャージ量に応じて、元のサイズ(1,1,1)から潰れたサイズへ変形させる
+        if (characterModel != null)
+        {
+            characterModel.localScale = Vector3.Lerp(Vector3.one, squashScale, chargePercent);
+        }
+
+        //チャージ中は移動できず、回転だけできるようにする
+        if (moveInput.magnitude >= 0.1f)
+        {
+            Vector3 camForward = Vector3.Scale(cameraTransform.forward, new Vector3(1, 0, 1)).normalized;
+            Vector3 camRight = Vector3.Scale(cameraTransform.right, new Vector3(1, 0, 1)).normalized;
+            Vector3 targetDir = (camForward * moveInput.y + camRight * moveInput.x).normalized;
+
+            Quaternion targetRotation = Quaternion.LookRotation(targetDir);
+            characterModel.rotation = Quaternion.Slerp(characterModel.rotation, targetRotation, rotationSpeed * Time.deltaTime);
+        }
+
+        //重力だけ適用して動かない
+        controller.Move(new Vector3(0, verticalVelocity, 0) * Time.deltaTime);
+    }
+
+    //突撃中の処理
+    private void HandleAttackMovement()
+    {
+        attackTimer -= Time.deltaTime;
+
+        //時間切れで突撃停止
+        if (attackTimer <= 0)
+        {
+            isAttacking = false;
+            currentVelocity = Vector3.zero; //ピタッと止めるか、慣性を残すか
+            if (characterModel != null) characterModel.localScale = Vector3.one;
+            return;
+        }
+
+        //衝突速度の計算（後半少し減速させると自然）
+        float currentSpeed = attackSpeed * (attackTimer / attackDuration);
+        Vector3 velocity = attackDirection * currentSpeed;
+        velocity.y = verticalVelocity; //重力は維持
+
+        controller.Move(velocity * Time.deltaTime);
+
+        //向きは進行方向に固定
+        if (characterModel != null)
+        {
+            characterModel.rotation = Quaternion.LookRotation(attackDirection);
+            //スケールを元に戻す（びよーんと戻る演出を入れたい場合はここでLerpする）
+            characterModel.localScale = Vector3.one;
+        }
+    }
+
+    private void StartAttack()
+    {
+        isAttacking = true;
+
+        //溜め時間に応じて持続時間を変える（最大溜めで長く飛ぶ）
+        float chargeRatio = Mathf.Clamp01(chargeTimer / maxChargeTime);
+        //最低0.2秒、最大で設定値まで
+        attackTimer = Mathf.Lerp(0.2f, attackDuration, chargeRatio);
+
+        //向いている方向に飛ぶ
+        if (characterModel != null) attackDirection = characterModel.forward;
+        else attackDirection = transform.forward;
+
+        if (characterModel != null) characterModel.localScale = Vector3.one;
     }
 
     private void HandleGround()
@@ -98,6 +246,9 @@ public class PlayerController : MonoBehaviour
 
     private void HandleMovement()
     {
+        //スケールを安全にリセット
+        if (characterModel != null) characterModel.localScale = Vector3.Lerp(characterModel.localScale, Vector3.one, Time.deltaTime * 10f);
+
         // 1. 入力ベクトルの計算
         Vector3 targetDirection = Vector3.zero;
 
@@ -144,6 +295,23 @@ public class PlayerController : MonoBehaviour
         controller.Move(finalMove * Time.deltaTime);
     }
 
+    private void OnControllerColliderHit(ControllerColliderHit hit)
+    {
+        if (isAttacking)
+        {
+            Rigidbody body = hit.collider.attachedRigidbody;
+
+            //相手が物理挙動を持っていて、かつ静的でなければ
+            if (body != null && !body.isKinematic)
+            {
+                Vector3 pushDir = hit.moveDirection;
+                pushDir.y = 0.5f; //少し上に跳ね上げる
+
+                body.AddForce(pushDir * pushPower, ForceMode.Impulse);
+            }
+        }
+    }
+
     // Input System Events
     public void OnMove(InputAction.CallbackContext context)
     {
@@ -152,7 +320,7 @@ public class PlayerController : MonoBehaviour
 
     public void OnJump(InputAction.CallbackContext context)
     {
-        if (context.performed && isGrounded)
+        if (context.performed && isGrounded && !isCharging)
         {
             // 高さ指定ジャンプの公式: v = sqrt(h * -2 * g)
             // jumpForceを「ジャンプする高さ(メートル)」として扱えるように変更
@@ -162,7 +330,6 @@ public class PlayerController : MonoBehaviour
 
     public void OnDash(InputAction.CallbackContext context)
     {
-        if (context.performed) isDashing = true;
-        if (context.canceled) isDashing = false;
+        rawDashInput = context.ReadValue<float>();
     }
 }
