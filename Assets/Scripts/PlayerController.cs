@@ -1,7 +1,6 @@
-using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.InputSystem;
-using UnityEngine.TextCore.Text;
+using System.Collections;
 
 [RequireComponent(typeof(CharacterController))]
 public class PlayerController : MonoBehaviour
@@ -56,6 +55,8 @@ public class PlayerController : MonoBehaviour
     private bool isAttacking;
     private float attackTimer;
     private Vector3 attackDirection;
+    private bool isHitStopping;
+    private float hitStopCooldown;
 
     //デバッグ用変数
     private float rawDashInput;
@@ -75,6 +76,10 @@ public class PlayerController : MonoBehaviour
 
     void Update()
     {
+        if (isHitStopping) return;
+
+        if (hitStopCooldown > 0) hitStopCooldown -= Time.deltaTime;
+
         HandleGround();
         HandleGravity();
 
@@ -123,11 +128,6 @@ public class PlayerController : MonoBehaviour
                 {
                     currentVelocity = Vector3.zero;
                 }
-                else
-                {
-                    
-                }
-                
             }
 
             //チャージ時間を加算
@@ -332,12 +332,40 @@ public class PlayerController : MonoBehaviour
             //相手が物理挙動を持っていて、かつ静的でなければ
             if (body != null && !body.isKinematic)
             {
-                Vector3 pushDir = hit.moveDirection;
-                pushDir.y = 0.5f; //少し上に跳ね上げる
+                if (hitStopCooldown <= 0)
+                {
+                    //ヒットストップ
+                    TriggerHitStop(0.15f);
+                    if (CameraShaker.Instance != null) CameraShaker.Instance.Shake(0.2f, 0.5f);
+                    hitStopCooldown = 0.45f;
 
-                body.AddForce(pushDir * pushPower, ForceMode.Impulse);
+                    Vector3 pushDir = hit.moveDirection;
+                    pushDir.y = 0.5f; //少し上に跳ね上げる
+
+                    body.AddForce(pushDir * pushPower, ForceMode.Impulse);
+                }
             }
         }
+    }
+
+    private void TriggerHitStop(float duration)
+    {
+        StartCoroutine(HitStopCoroutine(duration));
+    }
+
+    private IEnumerator HitStopCoroutine(float duration)
+    {
+        isHitStopping = true;
+        
+        //時間を止める
+        Time.timeScale = 0.05f;
+
+        //停止時間は実時間で待つ必要がある
+        yield return new WaitForSecondsRealtime(duration);
+
+        //時間を戻す
+        Time.timeScale = 1.0f;
+        isHitStopping = false;
     }
 
     // Input System Events
