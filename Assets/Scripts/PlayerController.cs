@@ -117,7 +117,16 @@ public class PlayerController : MonoBehaviour
                 //押し始めた瞬間
                 isCharging = true;
                 chargeTimer = 0f;
-                currentVelocity = Vector3.zero;
+
+                if (isGrounded)
+                {
+                    currentVelocity = Vector3.zero;
+                }
+                else
+                {
+                    
+                }
+                
             }
 
             //チャージ時間を加算
@@ -156,8 +165,19 @@ public class PlayerController : MonoBehaviour
             characterModel.rotation = Quaternion.Slerp(characterModel.rotation, targetRotation, rotationSpeed * Time.deltaTime);
         }
 
-        //重力だけ適用して動かない
-        controller.Move(new Vector3(0, verticalVelocity, 0) * Time.deltaTime);
+        if (!isGrounded)
+        {
+            // 空気抵抗
+            currentVelocity *= 1.0f;
+
+            Vector3 airMove = currentVelocity;
+            airMove.y = verticalVelocity;
+            controller.Move(airMove * Time.deltaTime);
+        }
+        else //地面なら動かない（重力のみ）
+        {
+            controller.Move(new Vector3(0, verticalVelocity, 0) * Time.deltaTime);
+        }
     }
 
     //突撃中の処理
@@ -249,6 +269,10 @@ public class PlayerController : MonoBehaviour
         //スケールを安全にリセット
         if (characterModel != null) characterModel.localScale = Vector3.Lerp(characterModel.localScale, Vector3.one, Time.deltaTime * 10f);
 
+        //入力の有無
+        bool hasInput = moveInput.magnitude > 0.1f;
+        float dynamicSmoothTime = hasInput ? movementSmoothTime : 0.001f;
+
         // 1. 入力ベクトルの計算
         Vector3 targetDirection = Vector3.zero;
 
@@ -275,7 +299,7 @@ public class PlayerController : MonoBehaviour
 
         // キャラクターの進行方向ベクトル自体をスムーズに変化させる
         // これにより「急な方向転換」をした時に、一瞬だけ速度が落ちて弧を描くような自然な挙動になる
-        currentVelocity = Vector3.SmoothDamp(currentVelocity, targetDirection * targetSpeedVal, ref moveDirectionVelocity, movementSmoothTime);
+        currentVelocity = Vector3.SmoothDamp(currentVelocity, targetDirection * targetSpeedVal, ref moveDirectionVelocity, dynamicSmoothTime);
 
         // 3. 回転処理
         // 移動しようとしている方向（currentVelocity）があれば、そちらを向く
