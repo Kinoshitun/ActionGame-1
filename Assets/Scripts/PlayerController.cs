@@ -23,6 +23,7 @@ public class PlayerController : MonoBehaviour
     [Header("Visual")]
     [SerializeField] private Transform characterModel;
     [SerializeField] private Vector3 squashScale = new Vector3(1.5f, 0.5f, 1.5f);
+    [SerializeField] private TrailRenderer trail;
 
     [Header("Jump & Gravity")]
     [SerializeField] private float jumpForce = 1.5f; // 高さ(m)指定に変更
@@ -191,6 +192,7 @@ public class PlayerController : MonoBehaviour
             isAttacking = false;
             currentVelocity = Vector3.zero; //ピタッと止めるか、慣性を残すか
             if (characterModel != null) characterModel.localScale = Vector3.one;
+            if (trail != null) trail.emitting = false;
             return;
         }
 
@@ -213,6 +215,8 @@ public class PlayerController : MonoBehaviour
     private void StartAttack()
     {
         isAttacking = true;
+
+        if (trail != null) trail.emitting = true;
 
         //溜め時間に応じて持続時間を変える（最大溜めで長く飛ぶ）
         float chargeRatio = Mathf.Clamp01(chargeTimer / maxChargeTime);
