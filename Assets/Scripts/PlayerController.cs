@@ -1,23 +1,24 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 using System.Collections;
+using Unity.VisualScripting;
 
 [RequireComponent(typeof(CharacterController))]
 public class PlayerController : MonoBehaviour
 {
     [Header("Movement Settings")]
-    [SerializeField] private float moveSpeed = 6f;
-    [SerializeField] private float dashSpeedMultiplier = 2f;
+    [SerializeField] private float moveSpeed = 6f;                      //移動速度
+    [SerializeField] private float dashSpeedMultiplier = 2f;            //ダッシュの加速倍率
     [Tooltip("移動入力の反応速度。小さいほどキビキビ、大きいと慣性がつく")]
-    [SerializeField] private float movementSmoothTime = 0.05f; 
+    [SerializeField] private float movementSmoothTime = 0.05f;          //入力に対する反応速度
     [Tooltip("回転速度。大きいほど速く向く")]
-    [SerializeField] private float rotationSpeed = 15f; // Slerp用に値を調整
+    [SerializeField] private float rotationSpeed = 15f;                 //回転速度
 
-    [Header("Sura-Strike Settings")]//スラストライク設定
-    [SerializeField] private float maxChargeTime = 1.5f;
-    [SerializeField] private float attackSpeed = 25f;
-    [SerializeField] private float attackDuration = 0.5f;
-    [SerializeField] private float pushPower = 20;
+    [Header("Sura-Strike Settings")]                                    //スラストライク設定
+    [SerializeField] private float maxChargeTime = 1.5f;                //最大溜め時間
+    [SerializeField] private float attackSpeed = 25f;                   //攻撃中の速度
+    [SerializeField] private float attackDuration = 0.5f;               //攻撃全体の時間
+    [SerializeField] private float pushPower = 20;                      //物を押す力
 
     [Header("Visual")]
     [SerializeField] private Transform characterModel;
@@ -25,9 +26,9 @@ public class PlayerController : MonoBehaviour
     [SerializeField] private TrailRenderer trail;
 
     [Header("Jump & Gravity")]
-    [SerializeField] private float jumpForce = 1.5f; // 高さ(m)指定に変更
-    [SerializeField] private float gravityValue = -15.0f; // キビキビさせるため重力強め
-    [SerializeField] private float gravityMultiplier = 2.0f; // 落下時はさらに倍
+    [SerializeField] private float jumpForce = 1.5f;                    // 高さ(m)指定に変更
+    [SerializeField] private float gravityValue = -15.0f;               // キビキビさせるため重力強め
+    [SerializeField] private float gravityMultiplier = 2.0f;            // 落下時はさらに倍
 
     [Header("Ground Check")]
     [SerializeField] private Transform groundCheck;
@@ -42,8 +43,8 @@ public class PlayerController : MonoBehaviour
 
     // State
     private Vector2 moveInput;
-    private Vector3 currentVelocity; // SmoothDamp用
-    private Vector3 moveDirectionVelocity; // SmoothDamp用
+    private Vector3 currentVelocity;                                    // SmoothDamp用
+    private Vector3 moveDirectionVelocity;                              // SmoothDamp用
     private float verticalVelocity;
     private bool isGrounded;
     private bool isDashing;
@@ -327,24 +328,40 @@ public class PlayerController : MonoBehaviour
     {
         if (isAttacking)
         {
-            Rigidbody body = hit.collider.attachedRigidbody;
+            BreakableObject breakable = hit.gameObject.GetComponent<BreakableObject>();
 
-            //相手が物理挙動を持っていて、かつ静的でなければ
-            if (body != null && !body.isKinematic)
+            if (breakable != null)
             {
                 if (hitStopCooldown <= 0)
                 {
-                    //ヒットストップ
                     TriggerHitStop(0.15f);
-                    if (CameraShaker.Instance != null) CameraShaker.Instance.Shake(0.2f, 0.5f);
-                    hitStopCooldown = 0.45f;
+                    if (CameraShaker.Instance != null) CameraShaker.Instance.Shake(0.3f, 0.6f);
+                    hitStopCooldown = 0.5f;
 
-                    Vector3 pushDir = hit.moveDirection;
-                    pushDir.y = 0.5f; //少し上に跳ね上げる
-
-                    body.AddForce(pushDir * pushPower, ForceMode.Impulse);
+                    breakable.Break(transform.forward);
                 }
             }
+            else
+            {
+                Rigidbody body = hit.collider.attachedRigidbody;
+
+                //相手が物理挙動を持っていて、かつ静的でなければ
+                if (body != null && !body.isKinematic)
+                {
+                    if (hitStopCooldown <= 0)
+                    {
+                        //ヒットストップ
+                        TriggerHitStop(0.15f);
+                        if (CameraShaker.Instance != null) CameraShaker.Instance.Shake(0.2f, 0.5f);
+                        hitStopCooldown = 0.45f;
+
+                        Vector3 pushDir = hit.moveDirection;
+                        pushDir.y = 0.5f; //少し上に跳ね上げる
+
+                        body.AddForce(pushDir * pushPower, ForceMode.Impulse);
+                    }
+                }
+            } 
         }
     }
 
