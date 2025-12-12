@@ -34,6 +34,12 @@ public class BreakableObject : MonoBehaviour
 
             Destroy(brokenObj, debrisLifetime);
         }
+
+        if (GameManager.Instance != null)
+        {
+            GameManager.Instance.AddScore();
+        }
+        
         Destroy(gameObject);
     }
 }
