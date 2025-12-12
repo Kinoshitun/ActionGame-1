@@ -16,6 +16,13 @@ public class GameManager : MonoBehaviour
     [SerializeField] private TextMeshProUGUI stateText;     //"GOAL!" "GAME OVER"表示
     [SerializeField] private GameObject resultPanel;        //リザルト画面
 
+    [Header("References")]
+    [SerializeField] private PlayerController player;
+    [SerializeField] private MonoBehaviour cameraScript;
+
+    [Header("Audio")]
+    [SerializeField] private AudioClip goalSound;
+
     //内部変数
     private float currentTime;
     private int score;
@@ -72,20 +79,38 @@ public class GameManager : MonoBehaviour
     {
         if (!isPlaying) return;
 
-        isPlaying = false;
-        Debug.Log("GOAL!");
+        if (AudioManager.Instance != null)
+        {
+            AudioManager.Instance.PlaySE(goalSound);
+        }
 
+        isPlaying = false;
+        if (player != null) player.isInputEnabled = false;
+
+        Debug.Log("GOAL!");
         if (stateText != null) stateText.text = "CLEAR!!";
         if (resultPanel != null) resultPanel.SetActive(true);
+
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
+
+        if (cameraScript != null) cameraScript.enabled = false;
     }
 
     private void GameOver()
     {
         isPlaying = false;
-        Debug.Log("GAME OVER...");
 
+        if (player != null) player.isInputEnabled = false;
+
+        Debug.Log("GAME OVER...");
         if (stateText != null) stateText.text = "TIME UP...";
         if (resultPanel != null) resultPanel.SetActive(true);
+
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
+
+        if (cameraScript != null) cameraScript.enabled = false;
     }
 
     private void UpdateUI()

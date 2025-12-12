@@ -1,17 +1,15 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 using System.Collections;
-using Unity.VisualScripting;
 
 [RequireComponent(typeof(CharacterController))]
+[RequireComponent(typeof(PlayerAudio))]
 public class PlayerController : MonoBehaviour
 {
     [Header("Movement Settings")]
     [SerializeField] private float moveSpeed = 6f;                      //移動速度
     [SerializeField] private float dashSpeedMultiplier = 2f;            //ダッシュの加速倍率
-    [Tooltip("移動入力の反応速度。小さいほどキビキビ、大きいと慣性がつく")]
     [SerializeField] private float movementSmoothTime = 0.05f;          //入力に対する反応速度
-    [Tooltip("回転速度。大きいほど速く向く")]
     [SerializeField] private float rotationSpeed = 15f;                 //回転速度
 
     [Header("Sura-Strike Settings")]                                    //スラストライク設定
@@ -40,6 +38,7 @@ public class PlayerController : MonoBehaviour
 
     // Components
     private CharacterController controller;
+    private PlayerAudio playerAudio;
 
     // State
     private Vector2 moveInput;
@@ -49,6 +48,7 @@ public class PlayerController : MonoBehaviour
     private bool isGrounded;
     private bool isDashing;
     private float currentMaxSpeed;
+    public bool isInputEnabled = true;
 
     // Action State
     private bool isCharging;
@@ -66,6 +66,7 @@ public class PlayerController : MonoBehaviour
     void Start()
     {
         controller = GetComponent<CharacterController>();
+        playerAudio = GetComponent<PlayerAudio>();
 
         // カメラ自動取得
         if (cameraTransform == null && Camera.main != null)
@@ -77,8 +78,8 @@ public class PlayerController : MonoBehaviour
 
     void Update()
     {
-        if (isHitStopping) return;
-
+        //ヒットストップ中と入力無効時にプレイヤーを止める処理
+        if (isHitStopping || !isInputEnabled) return;
         if (hitStopCooldown > 0) hitStopCooldown -= Time.deltaTime;
 
         HandleGround();
@@ -104,11 +105,9 @@ public class PlayerController : MonoBehaviour
     void OnGUI()
     {
         GUI.color = Color.black;
-        // 左上に、今のボタンの状態と、溜め時間を表示します
         GUI.Label(new Rect(20, 20, 300, 20), $"Button Pressed: {isDashButtonPressed} (Raw: {rawDashInput:F2})");
         GUI.Label(new Rect(20, 40, 300, 20), $"Charging: {isCharging}");
         GUI.Label(new Rect(20, 60, 300, 20), $"Timer: {chargeTimer:F2} / {maxChargeTime}");
-        GUI.Label(new Rect(20, 80, 300, 20), $"Model Scale: {characterModel?.localScale}");
     }
 
     private void HandleChargeLogic()
@@ -121,14 +120,15 @@ public class PlayerController : MonoBehaviour
         {
             if (!isCharging)
             {
-                //押し始めた瞬間
+                //押し始めた瞬間フラグを立てる
                 isCharging = true;
                 chargeTimer = 0f;
 
-                if (isGrounded)
-                {
-                    currentVelocity = Vector3.zero;
-                }
+                Debug.Log("Controller: チャージ命令をだします！");
+
+
+                if (playerAudio != null) playerAudio.PlayCharge();
+                if (isGrounded) currentVelocity = Vector3.zero;
             }
 
             //チャージ時間を加算
@@ -140,6 +140,7 @@ public class PlayerController : MonoBehaviour
             if (isCharging)
             {
                 isCharging = false;
+                if (playerAudio != null) playerAudio.StopCharge();
                 StartAttack();
             }
         }
@@ -148,13 +149,7 @@ public class PlayerController : MonoBehaviour
     private void HandleChargingMovement()
     {
         float chargePercent = Mathf.Clamp01(chargeTimer / maxChargeTime);
-
-        //見た目の変形
-        //チャージ量に応じて、元のサイズ(1,1,1)から潰れたサイズへ変形させる
-        if (characterModel != null)
-        {
-            characterModel.localScale = Vector3.Lerp(Vector3.one, squashScale, chargePercent);
-        }
+        if (characterModel != null) characterModel.localScale = Vector3.Lerp(Vector3.one, squashScale, chargePercent);
 
         //チャージ中は移動できず、回転だけできるようにする
         if (moveInput.magnitude >= 0.1f)
@@ -162,16 +157,13 @@ public class PlayerController : MonoBehaviour
             Vector3 camForward = Vector3.Scale(cameraTransform.forward, new Vector3(1, 0, 1)).normalized;
             Vector3 camRight = Vector3.Scale(cameraTransform.right, new Vector3(1, 0, 1)).normalized;
             Vector3 targetDir = (camForward * moveInput.y + camRight * moveInput.x).normalized;
-
             Quaternion targetRotation = Quaternion.LookRotation(targetDir);
             characterModel.rotation = Quaternion.Slerp(characterModel.rotation, targetRotation, rotationSpeed * Time.deltaTime);
         }
 
         if (!isGrounded)
         {
-            // 空気抵抗
-            currentVelocity *= 1.0f;
-
+            currentVelocity *= 1.0f;    //空気抵抗
             Vector3 airMove = currentVelocity;
             airMove.y = verticalVelocity;
             controller.Move(airMove * Time.deltaTime);
@@ -201,7 +193,6 @@ public class PlayerController : MonoBehaviour
         float currentSpeed = attackSpeed * (attackTimer / attackDuration);
         Vector3 velocity = attackDirection * currentSpeed;
         velocity.y = verticalVelocity; //重力は維持
-
         controller.Move(velocity * Time.deltaTime);
 
         //向きは進行方向に固定
@@ -216,15 +207,13 @@ public class PlayerController : MonoBehaviour
     private void StartAttack()
     {
         isAttacking = true;
+        if (playerAudio != null) playerAudio.PlayAttack();
 
         if (trail != null) trail.emitting = true;
 
-        //溜め時間に応じて持続時間を変える（最大溜めで長く飛ぶ）
         float chargeRatio = Mathf.Clamp01(chargeTimer / maxChargeTime);
-        //最低0.2秒、最大で設定値まで
         attackTimer = Mathf.Lerp(0.2f, attackDuration, chargeRatio);
 
-        //向いている方向に飛ぶ
         if (characterModel != null) attackDirection = characterModel.forward;
         else attackDirection = transform.forward;
 
@@ -338,7 +327,7 @@ public class PlayerController : MonoBehaviour
                     if (CameraShaker.Instance != null) CameraShaker.Instance.Shake(0.3f, 0.6f);
                     hitStopCooldown = 0.5f;
 
-                    breakable.Break(transform.forward);
+                    breakable.Break(characterModel.transform.forward);
                 }
             }
             else

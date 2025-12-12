@@ -7,6 +7,7 @@ public class BreakableObject : MonoBehaviour
     [SerializeField] private GameObject debrisPrefab;
     [SerializeField] private float explosionForce = 15f;
     [SerializeField] private float debrisLifetime = 5f;
+    [SerializeField] private AudioClip breakSound;
 
     public void Break(Vector3 hitDirection)
     {
@@ -39,7 +40,12 @@ public class BreakableObject : MonoBehaviour
         {
             GameManager.Instance.AddScore();
         }
-        
+
+        if (AudioManager.Instance != null)
+        {
+            AudioManager.Instance.PlaySE(breakSound);
+        }
+
         Destroy(gameObject);
     }
 }
