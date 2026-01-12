@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 using System.Collections;
+using Unity.VisualScripting;
 
 [RequireComponent(typeof(CharacterController))]
 [RequireComponent(typeof(PlayerAudio))]
@@ -33,12 +34,16 @@ public class PlayerController : MonoBehaviour
     [SerializeField] private float groundRadius = 0.2f;
     [SerializeField] private LayerMask groundMask;
 
+    [Header("Animation Settings")]
+    [SerializeField] private float landingPredictionHeight = 2.0f;
+
     [Header("References")]
     [SerializeField] private Transform cameraTransform;
 
     // Components
     private CharacterController controller;
     private PlayerAudio playerAudio;
+    private Animator animator;
 
     // State
     private Vector2 moveInput;
@@ -67,6 +72,7 @@ public class PlayerController : MonoBehaviour
     {
         controller = GetComponent<CharacterController>();
         playerAudio = GetComponent<PlayerAudio>();
+        animator = GetComponentInChildren<Animator>();
 
         // カメラ自動取得
         if (cameraTransform == null && Camera.main != null)
@@ -88,18 +94,11 @@ public class PlayerController : MonoBehaviour
         //状態遷移の管理
         HandleChargeLogic();
 
-        if (isAttacking)
-        {
-            HandleAttackMovement();     //突撃中の動き
-        }
-        else if (isCharging)
-        {
-            HandleChargingMovement();   //溜め中の動き
-        }
-        else
-        {
-            HandleMovement();   //通常の動き
-        }
+        if (isAttacking)        HandleAttackMovement();     //突撃中の動き
+        else if (isCharging)    HandleChargingMovement();   //溜め中の動き
+        else                    HandleMovement();   //通常の動き
+
+        UpdateAnimator();
     }
 
     void OnGUI()
@@ -108,6 +107,28 @@ public class PlayerController : MonoBehaviour
         GUI.Label(new Rect(20, 20, 300, 20), $"Button Pressed: {isDashButtonPressed} (Raw: {rawDashInput:F2})");
         GUI.Label(new Rect(20, 40, 300, 20), $"Charging: {isCharging}");
         GUI.Label(new Rect(20, 60, 300, 20), $"Timer: {chargeTimer:F2} / {maxChargeTime}");
+        GUI.Label(new Rect(20, 80, 300, 20), $"Current Velocity: {currentVelocity}");
+    }
+
+    private void UpdateAnimator()
+    {
+        if (animator == null) return;
+        float currentSpeed = currentVelocity.magnitude;
+        animator.SetFloat("Speed", currentSpeed, 0.1f, Time.deltaTime);
+
+        animator.SetBool("IsGrounded", isGrounded);
+
+        bool isCloseToGround = false;
+
+        if (verticalVelocity < -0.1f && !isGrounded)
+        {
+            Vector3 rayOrigin = transform.position + Vector3.up * 0.5f;
+            float rayDistance = landingPredictionHeight + 0.5f;
+            float castRadius = controller.radius * 0.9f;
+            if (Physics.SphereCast(rayOrigin, castRadius, Vector3.down, out RaycastHit hit, rayDistance, groundMask)) isCloseToGround = true;
+        }
+
+        animator.SetBool("IsCloseToGround", isCloseToGround);
     }
 
     private void HandleChargeLogic()
@@ -387,6 +408,8 @@ public class PlayerController : MonoBehaviour
             // 高さ指定ジャンプの公式: v = sqrt(h * -2 * g)
             // jumpForceを「ジャンプする高さ(メートル)」として扱えるように変更
             verticalVelocity = Mathf.Sqrt(jumpForce * -2f * gravityValue);
+
+            if (animator != null) animator.SetTrigger("Jump");
         }
     }
 
