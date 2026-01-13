@@ -19,6 +19,11 @@ public class PlayerController : MonoBehaviour
     [SerializeField] private float attackDuration = 0.5f;               //攻撃全体の時間
     [SerializeField] private float pushPower = 20;                      //物を押す力
 
+    [Header("Combat Settings")]
+    [SerializeField] private float inputBufferTime = 0.4f;
+    [SerializeField] private float attackCancelThreshold = 0.6f;
+    private float lastAttackInputTime = -1f;
+
     [Header("Visual")]
     [SerializeField] private Transform characterModel;
     [SerializeField] private Vector3 squashScale = new Vector3(1.5f, 0.5f, 1.5f);
@@ -98,6 +103,7 @@ public class PlayerController : MonoBehaviour
         else if (isCharging)    HandleChargingMovement();   //溜め中の動き
         else                    HandleMovement();   //通常の動き
 
+        CheckAttackCombo();
         UpdateAnimator();
     }
 
@@ -129,6 +135,30 @@ public class PlayerController : MonoBehaviour
         }
 
         animator.SetBool("IsCloseToGround", isCloseToGround);
+    }
+
+    private void CheckAttackCombo()
+    {
+        if (Time.time - lastAttackInputTime > inputBufferTime) return;
+
+        AnimatorStateInfo stateInfo = animator.GetCurrentAnimatorStateInfo(0);
+
+        if (stateInfo.IsTag("Attack"))
+        {
+            if (stateInfo.normalizedTime >= attackCancelThreshold)
+            {
+                animator.SetTrigger("Attack");
+                lastAttackInputTime = -1f;
+            }
+        }
+        else
+        {
+            if (isGrounded)
+            {
+                animator.SetTrigger("Attack");
+                lastAttackInputTime = -1f;
+            }
+        }
     }
 
     private void HandleChargeLogic()
@@ -281,6 +311,14 @@ public class PlayerController : MonoBehaviour
 
     private void HandleMovement()
     {
+        if (animator.GetCurrentAnimatorStateInfo(0).IsTag("Attack"))
+        {
+            // 完全に足を止める
+            currentVelocity = Vector3.zero; 
+            animator.SetFloat("Speed", 0); // 走りモーションも止める
+            return; // ここで処理を終了（移動入力を無視）
+        }
+
         //スケールを安全にリセット
         if (characterModel != null) characterModel.localScale = Vector3.Lerp(characterModel.localScale, Vector3.one, Time.deltaTime * 10f);
 
@@ -416,5 +454,13 @@ public class PlayerController : MonoBehaviour
     public void OnDash(InputAction.CallbackContext context)
     {
         rawDashInput = context.ReadValue<float>();
+    }
+
+    public void OnAttack(InputAction.CallbackContext context)
+    {
+        if (context.performed)
+        {
+            lastAttackInputTime = Time.time;
+        }
     }
 }
