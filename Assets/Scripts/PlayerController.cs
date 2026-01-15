@@ -1,7 +1,9 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 using System.Collections;
+using UnityEngine.UI;
 using Unity.VisualScripting;
+using NUnit.Framework;
 
 [RequireComponent(typeof(CharacterController))]
 [RequireComponent(typeof(PlayerAudio))]
@@ -20,9 +22,32 @@ public class PlayerController : MonoBehaviour
     [SerializeField] private float pushPower = 20;                      //物を押す力
 
     [Header("Combat Settings")]
-    [SerializeField] private float inputBufferTime = 0.4f;
-    [SerializeField] private float attackCancelThreshold = 0.6f;
+    [SerializeField] private float inputBufferTime = 0.4f;              //入力を覚えておく時間
+    [SerializeField] private float attackCancelThreshold = 0.6f;        //最低6割は攻撃アニメーションを再生する
     private float lastAttackInputTime = -1f;
+
+    [Header("Ability - Drain")]
+    [SerializeField] private float drainRadius = 8f;
+    [SerializeField] private LayerMask enemyLayer;
+    [SerializeField] private GameObject energyOrbPrefab;
+    [SerializeField] private GameObject drainAreaEffect;
+    [SerializeField] private float drainCooldown = 1.0f;
+    private float lastDrainTime;
+
+    [Header("Ability - Dash Strike")]
+    [SerializeField] private float strikeEnergyCost = 50f;
+    [SerializeField] private float strikeDashSpeed = 30f;
+    [SerializeField] private float strikeDuration = 0.3f;
+    [SerializeField] private float explosionRadius = 5f;
+    [SerializeField] private float knockbackForce = 20f;
+    [SerializeField] private GameObject explosionVFXPrefab;
+    [SerializeField] private LayerMask hitLayer;
+    private bool isDashStriking = false;
+
+    [Header("Energy System")]
+    [SerializeField] private Slider energyBar;
+    [SerializeField] private float maxEnergy = 100f;
+    private float currentEnergy = 0f;
 
     [Header("Visual")]
     [SerializeField] private Transform characterModel;
@@ -85,6 +110,8 @@ public class PlayerController : MonoBehaviour
 
         currentMaxSpeed = moveSpeed;
         if(characterModel == null) Debug.LogError("【重要】InspectorでCharacter Modelをセットしてください！ここが空だと変形しません！");
+
+        energyBar.value = 0f;
     }
 
     void Update()
@@ -116,6 +143,13 @@ public class PlayerController : MonoBehaviour
         GUI.Label(new Rect(20, 80, 300, 20), $"Current Velocity: {currentVelocity}");
     }
 
+    // デバッグ用：効果範囲をシーンビューに表示
+    void OnDrawGizmosSelected()
+    {
+        Gizmos.color = Color.cyan;
+        Gizmos.DrawWireSphere(transform.position, drainRadius);
+    }
+
     private void UpdateAnimator()
     {
         if (animator == null) return;
@@ -143,7 +177,7 @@ public class PlayerController : MonoBehaviour
 
         AnimatorStateInfo stateInfo = animator.GetCurrentAnimatorStateInfo(0);
 
-        if (stateInfo.IsTag("Attack"))
+        if (stateInfo.IsTag("Attack"))  //攻撃アニメーションが再生中なら
         {
             if (stateInfo.normalizedTime >= attackCancelThreshold)
             {
@@ -311,10 +345,10 @@ public class PlayerController : MonoBehaviour
 
     private void HandleMovement()
     {
-        if (animator.GetCurrentAnimatorStateInfo(0).IsTag("Attack"))
+        if (animator.GetCurrentAnimatorStateInfo(0).IsTag("Attack") || isDashStriking)
         {
             // 完全に足を止める
-            currentVelocity = Vector3.zero; 
+            currentVelocity = Vector3.zero;
             animator.SetFloat("Speed", 0); // 走りモーションも止める
             return; // ここで処理を終了（移動入力を無視）
         }
@@ -433,7 +467,128 @@ public class PlayerController : MonoBehaviour
         isHitStopping = false;
     }
 
+    private IEnumerator DashStrikeRoutine()
+    {
+        isDashing = true;
+        AddEnergy(-strikeEnergyCost);
+        animator.SetTrigger("DashStrike");
+        float startTime = Time.time;
+        Vector3 dashDirection = characterModel.forward;
+        Debug.Log("プレイヤーはダッシュストライクを放った！");
+
+        bool hitSomething = false;
+        RaycastHit hitInfo = new RaycastHit();  
+
+        while (Time.time < startTime + strikeDuration)
+        {
+            controller.Move(dashDirection * strikeDashSpeed * Time.deltaTime);
+            if (Physics.SphereCast(characterModel.position + Vector3.up, 0.5f, dashDirection, out hitInfo, 1.0f, hitLayer))
+            {
+                hitSomething = true;
+                break;
+            }
+            yield return null;
+        }
+
+        if (hitSomething)
+        {
+            Time.timeScale = 0.1f;
+            yield return new WaitForSecondsRealtime(0.1f);
+            Time.timeScale = 1.0f;
+        }
+        
+        currentVelocity = Vector3.zero;
+        Vector3 explosionPosition = hitSomething ? hitInfo.point : transform.position + characterModel.forward * 2f;
+
+        if (explosionVFXPrefab != null)
+        {
+            GameObject vfx = Instantiate(explosionVFXPrefab, explosionPosition, Quaternion.identity);
+            Destroy(vfx, 2.0f);
+        }
+
+        Collider[] hitColliders = Physics.OverlapSphere(explosionPosition, explosionRadius, hitLayer);
+        foreach (Collider col in hitColliders)
+        {
+            Rigidbody rb = col.GetComponent<Rigidbody>();
+            if (rb != null)
+            {
+                Vector3 knockbackDir = (col.transform.position - explosionPosition).normalized;
+                knockbackDir += Vector3.up * 0.5f;
+
+                rb.AddForce(knockbackDir * knockbackForce, ForceMode.Impulse);
+                
+                //ダメージ処理
+            }
+        }
+
+        //硬直時間
+        isDashing = false;
+    }
+
+    private void PerformDrain()
+    {
+        if (Time.time - lastDrainTime < drainCooldown) return;  //クールダウン中なら終了
+        lastDrainTime = Time.time;
+
+        if (drainAreaEffect != null)
+        {
+            GameObject effect = Instantiate(drainAreaEffect, transform.position, Quaternion.identity);
+            effect.transform.localScale = new Vector3(drainRadius * 2, effect.transform.localScale.y, drainRadius * 2);
+            Destroy(effect, 0.5f);
+        }
+
+        //animator.SetTrigger("Drain");
+
+        Collider[] enemies = Physics.OverlapSphere(transform.position, drainRadius, enemyLayer);
+
+        foreach (Collider col in enemies)
+        {
+            EnemyDummy enemy = col.GetComponent<EnemyDummy>();
+
+            if (enemy != null)
+            {
+                enemy.OnDrain();
+
+                if (energyOrbPrefab != null)
+                {
+                    GameObject orb = Instantiate(energyOrbPrefab, col.transform.position + Vector3.up, Quaternion.identity);
+                    EnergyOrb orbScript = orb.GetComponent<EnergyOrb>();
+                    if (orbScript != null) orbScript.Initialize(this.transform);
+                }
+            }
+
+            //エネルギー回復処理
+        }
+
+        Debug.Log($"ドレイン発動! 対象数: {enemies.Length}");
+    }
+
+    private void AttemptDashStrike()
+    {
+        if (currentEnergy >= strikeEnergyCost && isGrounded && !isDashStriking && !isAttacking)
+        {
+            StartCoroutine(DashStrikeRoutine());
+        }
+        else Debug.Log("今は技を出せない！");
+    }
+
+    public void AddEnergy(float amount)
+    {
+        currentEnergy += amount;
+
+        if (currentEnergy > maxEnergy) currentEnergy =maxEnergy;
+
+        if (energyBar != null) energyBar.value = currentEnergy;
+
+        Debug.Log($"Energy: {currentEnergy}");
+    }
+
     // Input System Events
+    public void OnDrain(InputAction.CallbackContext context)
+    {
+        if (context.performed) PerformDrain();
+    }
+
     public void OnMove(InputAction.CallbackContext context)
     {
         moveInput = context.ReadValue<Vector2>();
@@ -463,4 +618,10 @@ public class PlayerController : MonoBehaviour
             lastAttackInputTime = Time.time;
         }
     }
+
+    public void OnEvade(InputAction.CallbackContext context)
+    {
+        if (context.performed) AttemptDashStrike();
+    }
+
 }

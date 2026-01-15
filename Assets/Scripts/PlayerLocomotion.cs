@@ -136,6 +136,24 @@ public partial class @PlayerLocomotion: IInputActionCollection2, IDisposable
                     ""processors"": """",
                     ""interactions"": """",
                     ""initialStateCheck"": false
+                },
+                {
+                    ""name"": ""Drain"",
+                    ""type"": ""Button"",
+                    ""id"": ""0a041dea-a9df-48fc-b89f-73e9750c537b"",
+                    ""expectedControlType"": """",
+                    ""processors"": """",
+                    ""interactions"": """",
+                    ""initialStateCheck"": false
+                },
+                {
+                    ""name"": ""Evade/Dash"",
+                    ""type"": ""Button"",
+                    ""id"": ""3b21c177-1a66-4305-8970-beed9f578c4d"",
+                    ""expectedControlType"": """",
+                    ""processors"": """",
+                    ""interactions"": """",
+                    ""initialStateCheck"": false
                 }
             ],
             ""bindings"": [
@@ -292,6 +310,50 @@ public partial class @PlayerLocomotion: IInputActionCollection2, IDisposable
                     ""action"": ""Attack"",
                     ""isComposite"": false,
                     ""isPartOfComposite"": false
+                },
+                {
+                    ""name"": """",
+                    ""id"": ""05e9b1e0-8eec-49b9-8bfc-b5fc2baad378"",
+                    ""path"": ""<Keyboard>/q"",
+                    ""interactions"": """",
+                    ""processors"": """",
+                    ""groups"": """",
+                    ""action"": ""Drain"",
+                    ""isComposite"": false,
+                    ""isPartOfComposite"": false
+                },
+                {
+                    ""name"": """",
+                    ""id"": ""f216a4a1-80ca-4797-be1c-ce87d986cb0a"",
+                    ""path"": ""<Gamepad>/leftShoulder"",
+                    ""interactions"": """",
+                    ""processors"": """",
+                    ""groups"": """",
+                    ""action"": ""Drain"",
+                    ""isComposite"": false,
+                    ""isPartOfComposite"": false
+                },
+                {
+                    ""name"": """",
+                    ""id"": ""6e1c3cf6-e687-4420-9883-9ad3f6205915"",
+                    ""path"": ""<Gamepad>/rightTrigger"",
+                    ""interactions"": """",
+                    ""processors"": """",
+                    ""groups"": """",
+                    ""action"": ""Evade/Dash"",
+                    ""isComposite"": false,
+                    ""isPartOfComposite"": false
+                },
+                {
+                    ""name"": """",
+                    ""id"": ""e13942fc-1409-4404-a88a-d3879282f97b"",
+                    ""path"": ""<Keyboard>/alt"",
+                    ""interactions"": """",
+                    ""processors"": """",
+                    ""groups"": """",
+                    ""action"": ""Evade/Dash"",
+                    ""isComposite"": false,
+                    ""isPartOfComposite"": false
                 }
             ]
         }
@@ -305,6 +367,8 @@ public partial class @PlayerLocomotion: IInputActionCollection2, IDisposable
         m_Player_Dash = m_Player.FindAction("Dash", throwIfNotFound: true);
         m_Player_Look = m_Player.FindAction("Look", throwIfNotFound: true);
         m_Player_Attack = m_Player.FindAction("Attack", throwIfNotFound: true);
+        m_Player_Drain = m_Player.FindAction("Drain", throwIfNotFound: true);
+        m_Player_EvadeDash = m_Player.FindAction("Evade/Dash", throwIfNotFound: true);
     }
 
     ~@PlayerLocomotion()
@@ -390,6 +454,8 @@ public partial class @PlayerLocomotion: IInputActionCollection2, IDisposable
     private readonly InputAction m_Player_Dash;
     private readonly InputAction m_Player_Look;
     private readonly InputAction m_Player_Attack;
+    private readonly InputAction m_Player_Drain;
+    private readonly InputAction m_Player_EvadeDash;
     /// <summary>
     /// Provides access to input actions defined in input action map "Player".
     /// </summary>
@@ -421,6 +487,14 @@ public partial class @PlayerLocomotion: IInputActionCollection2, IDisposable
         /// Provides access to the underlying input action "Player/Attack".
         /// </summary>
         public InputAction @Attack => m_Wrapper.m_Player_Attack;
+        /// <summary>
+        /// Provides access to the underlying input action "Player/Drain".
+        /// </summary>
+        public InputAction @Drain => m_Wrapper.m_Player_Drain;
+        /// <summary>
+        /// Provides access to the underlying input action "Player/EvadeDash".
+        /// </summary>
+        public InputAction @EvadeDash => m_Wrapper.m_Player_EvadeDash;
         /// <summary>
         /// Provides access to the underlying input action map instance.
         /// </summary>
@@ -462,6 +536,12 @@ public partial class @PlayerLocomotion: IInputActionCollection2, IDisposable
             @Attack.started += instance.OnAttack;
             @Attack.performed += instance.OnAttack;
             @Attack.canceled += instance.OnAttack;
+            @Drain.started += instance.OnDrain;
+            @Drain.performed += instance.OnDrain;
+            @Drain.canceled += instance.OnDrain;
+            @EvadeDash.started += instance.OnEvadeDash;
+            @EvadeDash.performed += instance.OnEvadeDash;
+            @EvadeDash.canceled += instance.OnEvadeDash;
         }
 
         /// <summary>
@@ -488,6 +568,12 @@ public partial class @PlayerLocomotion: IInputActionCollection2, IDisposable
             @Attack.started -= instance.OnAttack;
             @Attack.performed -= instance.OnAttack;
             @Attack.canceled -= instance.OnAttack;
+            @Drain.started -= instance.OnDrain;
+            @Drain.performed -= instance.OnDrain;
+            @Drain.canceled -= instance.OnDrain;
+            @EvadeDash.started -= instance.OnEvadeDash;
+            @EvadeDash.performed -= instance.OnEvadeDash;
+            @EvadeDash.canceled -= instance.OnEvadeDash;
         }
 
         /// <summary>
@@ -563,5 +649,19 @@ public partial class @PlayerLocomotion: IInputActionCollection2, IDisposable
         /// <seealso cref="UnityEngine.InputSystem.InputAction.performed" />
         /// <seealso cref="UnityEngine.InputSystem.InputAction.canceled" />
         void OnAttack(InputAction.CallbackContext context);
+        /// <summary>
+        /// Method invoked when associated input action "Drain" is either <see cref="UnityEngine.InputSystem.InputAction.started" />, <see cref="UnityEngine.InputSystem.InputAction.performed" /> or <see cref="UnityEngine.InputSystem.InputAction.canceled" />.
+        /// </summary>
+        /// <seealso cref="UnityEngine.InputSystem.InputAction.started" />
+        /// <seealso cref="UnityEngine.InputSystem.InputAction.performed" />
+        /// <seealso cref="UnityEngine.InputSystem.InputAction.canceled" />
+        void OnDrain(InputAction.CallbackContext context);
+        /// <summary>
+        /// Method invoked when associated input action "Evade/Dash" is either <see cref="UnityEngine.InputSystem.InputAction.started" />, <see cref="UnityEngine.InputSystem.InputAction.performed" /> or <see cref="UnityEngine.InputSystem.InputAction.canceled" />.
+        /// </summary>
+        /// <seealso cref="UnityEngine.InputSystem.InputAction.started" />
+        /// <seealso cref="UnityEngine.InputSystem.InputAction.performed" />
+        /// <seealso cref="UnityEngine.InputSystem.InputAction.canceled" />
+        void OnEvadeDash(InputAction.CallbackContext context);
     }
 }
