@@ -2426,9 +2426,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 3f74d599d76aecf42846ad522c89524b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GameManager
-  initialTime: 120
-  timeBonusPerBox: 2
-  timeText: {fileID: 1719071760}
   stateText: {fileID: 2024309177}
   resultPanel: {fileID: 1562631982}
   player: {fileID: 1959362342}
@@ -3494,7 +3491,7 @@ MonoBehaviour:
   target: {fileID: 0}
   targetOffset: {x: 0, y: 1.5, z: 0}
   distance: 5
-  sensitivity: 0.5
+  sensitivity: 1
   yMinLimit: -20
   yMaxLimit: 80
 --- !u!1 &1466763903
@@ -4386,19 +4383,7 @@ MonoBehaviour:
     m_ActionId: 66845ecb-affc-4d36-bb95-9f9a0f4e01b3
     m_ActionName: 'Player/Jump[/Keyboard/space]'
   - m_PersistentCalls:
-      m_Calls:
-      - m_Target: {fileID: 1959362342}
-        m_TargetAssemblyTypeName: PlayerController, Assembly-CSharp
-        m_MethodName: OnDash
-        m_Mode: 0
-        m_Arguments:
-          m_ObjectArgument: {fileID: 0}
-          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
-          m_IntArgument: 0
-          m_FloatArgument: 0
-          m_StringArgument: 
-          m_BoolArgument: 0
-        m_CallState: 2
+      m_Calls: []
     m_ActionId: 132a35c0-241d-4001-a9a3-a9e121524b16
     m_ActionName: 'Player/Dash[/Keyboard/shift]'
   - m_PersistentCalls:
@@ -4453,7 +4438,7 @@ MonoBehaviour:
       m_Calls:
       - m_Target: {fileID: 1959362342}
         m_TargetAssemblyTypeName: PlayerController, Assembly-CSharp
-        m_MethodName: OnEvade
+        m_MethodName: OnSpecialAttack
         m_Mode: 0
         m_Arguments:
           m_ObjectArgument: {fileID: 0}
@@ -4482,48 +4467,36 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 518b846574275464f84f5fc0e2501207, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PlayerController
+  cameraTransform: {fileID: 330585546}
+  playerModel: {fileID: 575119063}
+  energyBar: {fileID: 1881081672}
   moveSpeed: 10
   dashSpeedMultiplier: 2
   movementSmoothTime: 0.1
   rotationSpeed: 15
-  maxChargeTime: 1.5
-  attackSpeed: 50
-  attackDuration: 0.5
-  pushPower: 20
+  jumpForce: 4
+  gravityValue: -15
+  gravityMultiplier: 2
+  groundMask:
+    serializedVersion: 2
+    m_Bits: 128
+  landingPredictionHeight: 2.5
   inputBufferTime: 0.4
   attackCancelThreshold: 0.6
   drainRadius: 8
+  drainCooldown: 1
   enemyLayer:
     serializedVersion: 2
     m_Bits: 512
-  energyOrbPrefab: {fileID: 1181061269908432448, guid: 0e3943555e5814e43b3bd614aab86588, type: 3}
+  EnergyOrbPrefab: {fileID: 1181061269908432448, guid: 0e3943555e5814e43b3bd614aab86588, type: 3}
   drainAreaEffect: {fileID: 5449029502402962145, guid: fe05bbb2521ce3442af6629c9ac09951, type: 3}
-  drainCooldown: 1
+  maxEnergy: 100
   strikeEnergyCost: 50
   strikeDashSpeed: 20
   strikeDuration: 0.3
   explosionRadius: 5
   knockbackForce: 10
   explosionVFXPrefab: {fileID: 2433282508537954060, guid: 3ef3ae421f71c5c4e97fe12dc2fc6312, type: 3}
-  hitLayer:
-    serializedVersion: 2
-    m_Bits: 512
-  energyBar: {fileID: 1881081672}
-  maxEnergy: 100
-  characterModel: {fileID: 575119063}
-  squashScale: {x: 1.5, y: 0.5, z: 1.5}
-  trail: {fileID: 0}
-  jumpForce: 4
-  gravityValue: -15
-  gravityMultiplier: 2
-  groundCheck: {fileID: 1466763904}
-  groundRadius: 0.2
-  groundMask:
-    serializedVersion: 2
-    m_Bits: 128
-  landingPredictionHeight: 2.5
-  cameraTransform: {fileID: 330585546}
-  isInputEnabled: 1
 --- !u!143 &1959362343
 CharacterController:
   m_ObjectHideFlags: 0

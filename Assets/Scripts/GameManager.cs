@@ -8,11 +8,8 @@ public class GameManager : MonoBehaviour
     public static GameManager Instance {get; private set;}
 
     [Header("Game Settings")]
-    [SerializeField] private float initialTime = 30f;       //制限時間
-    [SerializeField] private float timeBonusPerBox = 2f;    //箱破壊ボーナスタイム
 
     [Header("UI references")]
-    [SerializeField] private TextMeshProUGUI timeText;      //残り時間表示
     [SerializeField] private TextMeshProUGUI stateText;     //"GOAL!" "GAME OVER"表示
     [SerializeField] private GameObject resultPanel;        //リザルト画面
 
@@ -36,7 +33,6 @@ public class GameManager : MonoBehaviour
     void Start()
     {
         //初期化
-        currentTime = initialTime;
         score = 0;
         isPlaying = true;
 
@@ -48,16 +44,6 @@ public class GameManager : MonoBehaviour
     {
         if (!isPlaying) return;
 
-        //タイマー減算
-        currentTime -= Time.deltaTime;
-
-        //ゲームオーバー判定
-        if (currentTime <= 0)
-        {
-            currentTime = 0;
-            GameOver();
-        }
-
         //UI更新
         UpdateUI();
     }
@@ -68,10 +54,9 @@ public class GameManager : MonoBehaviour
         if (!isPlaying) return;
 
         score += 100;
-        currentTime += timeBonusPerBox;
 
         //演出
-        Debug.Log("Box Destroyed! Time Extended!");
+        Debug.Log("Box Destroyed!");
     }
 
     //ゴールエリアから呼ばれるメソッド
@@ -85,7 +70,6 @@ public class GameManager : MonoBehaviour
         }
 
         isPlaying = false;
-        if (player != null) player.isInputEnabled = false;
 
         Debug.Log("GOAL!");
         if (stateText != null) stateText.text = "CLEAR!!";
@@ -101,10 +85,7 @@ public class GameManager : MonoBehaviour
     {
         isPlaying = false;
 
-        if (player != null) player.isInputEnabled = false;
-
         Debug.Log("GAME OVER...");
-        if (stateText != null) stateText.text = "TIME UP...";
         if (resultPanel != null) resultPanel.SetActive(true);
 
         Cursor.lockState = CursorLockMode.None;
@@ -115,13 +96,7 @@ public class GameManager : MonoBehaviour
 
     private void UpdateUI()
     {
-        if (timeText != null)
-        {
-            timeText.text = $"TIME: {currentTime:F2}\nSCORE: {score}";
-
-            //残り時間が少ないと赤くする
-            timeText.color = (currentTime < 5f) ? Color.red : Color.white;
-        }
+        
     }
 
     public void RetryGame()
