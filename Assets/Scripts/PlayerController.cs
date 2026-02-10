@@ -14,6 +14,11 @@ public class PlayerController : MonoBehaviour
     [SerializeField] private Transform playerModel;
     [SerializeField] private Slider energyBar;
 
+    [Header("Ground Check Settings")]
+    [SerializeField] private float groundCheckRadius = 0.25f;
+    [SerializeField] private Vector3 groundCheckOffset = new Vector3(0, 0.1f, 0);
+    [SerializeField] private LayerMask groundMask;
+
     [Header("Movement Settings")]
     [SerializeField] private float moveSpeed = 5f;                      //移動速度
     [SerializeField] private float dashSpeedMultiplier = 1.5f;            //ダッシュの加速倍率
@@ -24,8 +29,10 @@ public class PlayerController : MonoBehaviour
     [SerializeField] private float jumpForce = 1.5f;                    // 高さ(m)指定に変更
     [SerializeField] private float gravityValue = -15.0f;               // キビキビさせるため重力強め
     [SerializeField] private float gravityMultiplier = 2.0f;            // 落下時はさらに倍
-    [SerializeField] private LayerMask groundMask;
     [SerializeField] private float landingPredictionHeight = 2.0f;
+
+    [Header("Animation Settings")]
+    [SerializeField] private float fallingDelay = 0.2f;
 
     [Header("Combat Settings")]
     [SerializeField] private float inputBufferTime = 0.4f;              //入力を覚えておく時間
@@ -61,6 +68,7 @@ public class PlayerController : MonoBehaviour
     private float currentMaxSpeed;
     private bool isGrounded;
     private bool isDashing;
+    private float lastGroundedTime;
 
     // --- Comabat State ---
     private float lastAttackInputTime = -1f;
@@ -90,7 +98,7 @@ public class PlayerController : MonoBehaviour
     void Update()
     {
         // 1. 接地判定
-        HandleGroundCheck();
+        GroundCheck();
 
         // 2. アクション中は通常の更新処理をスキップ
         if (isDashStriking) return;
@@ -110,11 +118,18 @@ public class PlayerController : MonoBehaviour
 
     void OnDrawGizmosSelected()
     {
+        //ドレイン範囲の可視化
         Gizmos.color = Color.cyan;
         Gizmos.DrawWireSphere(transform.position, drainRadius);
+
+        //着地予測線の可視化
         Gizmos.color = Color.red;
         Vector3 predictOrigin = transform. position + Vector3.up * 0.5f;
         Gizmos.DrawLine(predictOrigin, predictOrigin + Vector3.down * (landingPredictionHeight + 0.5f));
+
+        //GroundCheckの可視化
+        Gizmos.color = isGrounded ? new Color(1, 0, 0, 0.5f) : new Color(1, 1, 1, 0.5f);
+        Gizmos.DrawSphere(transform.position + groundCheckOffset, groundCheckRadius);
     }
 
     #endregion
@@ -217,9 +232,10 @@ public class PlayerController : MonoBehaviour
         controller.Move(finalMove * Time.deltaTime);
     }
 
-    private void HandleGroundCheck()
+    private void GroundCheck()
     {
         isGrounded = controller.isGrounded;
+        isGrounded = Physics.CheckSphere(transform.position + groundCheckOffset, groundCheckRadius, groundMask);
 
         // 接地時は重力をリセットする（これをしないと無限に加速して振動する）
         if (isGrounded && verticalVelocity < 0)
@@ -252,7 +268,9 @@ public class PlayerController : MonoBehaviour
         animator.SetFloat("Speed", horizontalSpeed, 0.1f, Time.deltaTime);
 
         //接地判定
-        animator.SetBool("IsGrounded", isGrounded);
+        if (isGrounded) lastGroundedTime = Time.time;
+        bool isGroundedForAnim = isGrounded || (Time.time - lastGroundedTime < fallingDelay);
+        animator.SetBool("IsGrounded", isGroundedForAnim);
 
         bool isCloseToGround = false;
         if (verticalVelocity < -0.1f && !isGrounded)
@@ -261,7 +279,7 @@ public class PlayerController : MonoBehaviour
             float castRadius = controller.radius * 0.9f;
             float castDist = landingPredictionHeight + 0.5f;
 
-            if (Physics.SphereCast(rayOrigin, castRadius, Vector3.down, out RaycastHit hit, castDist, groundMask)) 
+            if (Physics.SphereCast(rayOrigin, castRadius, Vector3.down, out RaycastHit hit, castDist, groundMask) && verticalVelocity < 0)
             {
                 isCloseToGround = true;
             }
