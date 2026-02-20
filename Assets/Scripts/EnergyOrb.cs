@@ -4,6 +4,7 @@ public class EnergyOrb : MonoBehaviour
 {
     private Transform target;
     private PlayerController playerController;
+    private CharacterAbility characterAbility;
     [SerializeField] private float moveSpeed = 15f;
     [SerializeField] private float arrivalDistance = 0.5f;
     [SerializeField] private float energyAmount = 10f;
@@ -26,7 +27,7 @@ public class EnergyOrb : MonoBehaviour
         // 到着判定
         if (Vector3.Distance(transform.position, target.position) < arrivalDistance)
         {
-            if (playerController != null) playerController.AddEnergy(energyAmount);
+            // if (characterAbility != null) characterAbility.AddEnergy(energyAmount);
             // ここでプレイヤーにエネルギー加算処理を呼ぶことも可能
             Destroy(gameObject);
         }

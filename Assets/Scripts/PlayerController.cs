@@ -1,157 +1,352 @@
+using System.Collections;
 using UnityEngine;
 using UnityEngine.InputSystem;
-using System.Collections;
-using UnityEngine.UI;
 
-[RequireComponent(typeof(CharacterController))]
-[RequireComponent(typeof(PlayerAudio))]
+public enum ActionPriority  //数字が小さい行動は数字が大きい行動でキャンセル可能
+{
+    Idle = 0,
+    Move = 5,       //移動やジャンプ等
+    Attack = 10,    //攻撃アクション
+    Ability = 20,   //スキル
+    Dodge = 30,     //回避アクション
+    Recovery = 40,  //硬直時間
+    Damage = 50,    //被弾
+    Dead = 100      //死亡
+}
+
+public enum PlayerActionState
+{
+    Locomotion,
+    Airborne,
+    Dodge,
+    HardLanding,
+    Stunned,
+    Attack
+}
+
+/// <summary>
+/// Input Actions から入力を受け取り、他クラスに指示を出す
+/// Playerの本質となるコンポーネント
+/// </summary>
+
 public class PlayerController : MonoBehaviour
 {
-    #region --- Settings & Variables ---
+    [Header("Sub Components")]
+    [SerializeField] private CharacterAnimator charAnim;
+    [SerializeField] private CharacterMovement movement;
+    [SerializeField] private CharacterCombat combat;
+    [SerializeField] private CharacterAbility ability;
+
+    [System.Serializable]
+    public struct DodgeSettings
+    {
+        public string name;           // わかりやすくするための名前 (Backstepなど)
+        public float distance;        // 移動距離
+        public float duration;        // 全体の時間
+        [Range(0f, 1f)] public float moveStartRatio; // 移動開始タイミング (0.0~1.0)
+        [Range(0f, 1f)] public float moveEndRatio;   // 移動終了タイミング (0.0~1.0)
+        public int frameCount;
+        
+        // 無敵やアニメーション情報もここに含める
+        public bool hasInvincibility;
+    }
+
+    [System.Serializable]
+    public struct HardLandingSettings
+    {
+        public float duration;
+        public float inputAcceptanceWindow;
+        public int frameCount;
+    }
+
+    [System.Serializable]
+    public struct MovementSettings
+    {
+        [Header("Speed")]
+        public float walkSpeed;
+        public float runSpeed;
+        public float airSpeed;
+
+        [Header("Control")]
+        public float groundSmoothTime;
+        public float rotationSpeed;
+    }
+
+    [Header("Movement Config")]
+    [SerializeField] private MovementSettings moveSettings;
+    private Vector2 moveInput;
+    private bool sprintInput;
+
+    [Header("Dodge Config")]
+    [SerializeField] private DodgeSettings[] dodgeSettings;
+    [SerializeField] private float dodgeCooldown = 0.2f;
+    [SerializeField] private float dodgeInputBufferTime = 0.4f;
+    private float lastDodgeEndTime = -10f;
+    private bool dodgeInput;
+    private float dodgeInputTime = -10f;    //ボタンを押した時刻
+
+    [Header("Landing Config")]
+    [SerializeField] private HardLandingSettings landingSettings;
 
     [Header("References")]
     [SerializeField] private Transform cameraTransform;
-    [SerializeField] private Transform playerModel;
-    [SerializeField] private Slider energyBar;
 
-    [Header("Ground Check Settings")]
-    [SerializeField] private float groundCheckRadius = 0.25f;
-    [SerializeField] private Vector3 groundCheckOffset = new Vector3(0, 0.1f, 0);
-    [SerializeField] private LayerMask groundMask;
+    private Vector3 targetDirection = Vector3.zero;         //入力の処理データ
+    public ActionPriority CurrentPriority { get; private set; } = ActionPriority.Idle;
+    private PlayerActionState currentState;                 //現在のstate
 
-    [Header("Movement Settings")]
-    [SerializeField] private float moveSpeed = 5f;                      //移動速度
-    [SerializeField] private float dashSpeedMultiplier = 1.5f;            //ダッシュの加速倍率
-    [SerializeField] private float movementSmoothTime = 0.1f;          //入力に対する反応速度
-    [SerializeField] private float rotationSpeed = 10f;                 //回転速度
+    private bool guardInput;
+    public bool IsGuarding { get; private set; }
 
-    [Header("Jump & Gravity")]
-    [SerializeField] private float jumpForce = 1.5f;                    // 高さ(m)指定に変更
-    [SerializeField] private float gravityValue = -15.0f;               // キビキビさせるため重力強め
-    [SerializeField] private float gravityMultiplier = 2.0f;            // 落下時はさらに倍
-    [SerializeField] private float landingPredictionHeight = 2.0f;
+    // public bool IsInvincible;
 
-    [Header("Animation Settings")]
-    [SerializeField] private float fallingDelay = 0.2f;
+    // --- Unity Lifecycle ---
+    void Awake()
+    {
+        if (movement == null) movement = GetComponent<CharacterMovement>();
+        if (charAnim == null) charAnim = GetComponent<CharacterAnimator>();
+        if (combat == null) combat = GetComponent<CharacterCombat>();
+        if (ability == null) ability = GetComponent<CharacterAbility>();
+        
+        if (movement != null) movement.Initialize(charAnim);
+        if (combat != null) combat.Initialize(charAnim, this);
 
-    [Header("Combat Settings")]
-    [SerializeField] private float inputBufferTime = 0.4f;              //入力を覚えておく時間
-    [SerializeField] private float attackCancelThreshold = 0.6f;        //最低6割は攻撃アニメーションを再生する
-
-    [Header("Ability - Drain")]
-    [SerializeField] private float drainRadius = 8f;
-    [SerializeField] private float drainCooldown = 1.0f;
-    [SerializeField] private LayerMask enemyLayer;
-    [SerializeField] private GameObject EnergyOrbPrefab;
-    [SerializeField] private GameObject drainAreaEffect;
-    [SerializeField] private float maxEnergy = 100f;
-
-    [Header("Ability - Dash Strike")]
-    [SerializeField] private float strikeEnergyCost = 50f;
-    [SerializeField] private float strikeDashSpeed = 30f;
-    [SerializeField] private float strikeDuration = 0.3f;
-    [SerializeField] private float explosionRadius = 5f;
-    [SerializeField] private float knockbackForce = 20f;
-    [SerializeField] private GameObject explosionVFXPrefab;
-
-    // --- Private Variables ---
-    private CharacterController controller;
-    private Animator animator;
-    private PlayerInput playerInput;
-    private PlayerAudio playerAudio;
-
-    // --- Movement State ---
-    private Vector2 moveInput;
-    private Vector3 currentVelocity;                                    // SmoothDamp用
-    private Vector3 moveDirectionVelocity;                              // SmoothDamp用
-    private float verticalVelocity;
-    private float currentMaxSpeed;
-    private bool isGrounded;
-    private bool isDashing;
-    private float lastGroundedTime;
-
-    // --- Comabat State ---
-    private float lastAttackInputTime = -1f;
-    private float lastDrainTime;
-    private float currentEnergy = 0f;
-    private bool isDashStriking = false;
-
-    #endregion
-
-    #region --- Unity Lifecycle ---
+        if (cameraTransform == null && Camera.main != null) 
+            cameraTransform = Camera.main.transform;
+    }
 
     void Start()
     {
-        controller = GetComponent<CharacterController>();
-        animator = GetComponentInChildren<Animator>();
-        playerInput = GetComponent<PlayerInput>();
-        playerAudio = GetComponent<PlayerAudio>();
-
-        //カメラ自動取得
-        if (cameraTransform == null && Camera.main != null)
-            cameraTransform = Camera.main.transform;
-
-        //初期化
-        if (energyBar != null) energyBar.value = currentEnergy;
+        ChangeState(PlayerActionState.Locomotion);
     }
 
-    void Update()
+    void Update()   //入力を各コンポーネントに送信、動きとアニメーションを
     {
-        // 1. 接地判定
-        GroundCheck();
+        CheckAirborneState();
+        UpdateGuardState();
 
-        // 2. アクション中は通常の更新処理をスキップ
-        if (isDashStriking) return;
+        // ステートを更新する処理、今自分が何をしているのか思い出す
+        switch (currentState)
+        {
+            case PlayerActionState.Locomotion:
+                HandleGroundMovement();
+                break;
+            case PlayerActionState.Airborne:
+                HandleAirborneMovement();
+                break;
+            case PlayerActionState.Dodge:
+            case PlayerActionState.Stunned:
+            case PlayerActionState.HardLanding:
+            case PlayerActionState.Attack:
+                movement.StopImmediately();
+                break;
+        }
 
-        // 3. コンボ入力の監視
-        CheckAttackCombo();
+        ProcessInput();
 
-        // 4. 重力処理
-        HandleGravity();
-
-        // 5. 移動と回転
-        HandleMovement();
-
-        // 6. アニメーターへパラメータを送信
-        UpdateAnimator();
+        if (charAnim != null && movement != null)
+        {
+            float animVerticalSpeed = movement.ActualVerticalSpeed;
+            float animHorizontalSpeed = movement.ActualHorizontalSpeed;   //入力方向に投射した値をアニメーションのスピードとする
+            if (moveInput.magnitude < 0.1f) animHorizontalSpeed = 0f;
+            if (movement.IsGrounded) animVerticalSpeed = 0f;
+            charAnim.UpdateMovement(animHorizontalSpeed, animVerticalSpeed, movement.IsGrounded);
+        }
     }
 
-    void OnDrawGizmosSelected()
+    private void CheckAirborneState()
     {
-        //ドレイン範囲の可視化
-        Gizmos.color = Color.cyan;
-        Gizmos.DrawWireSphere(transform.position, drainRadius);
+        if (currentState == PlayerActionState.Dodge || currentState == PlayerActionState.Stunned) return;
 
-        //着地予測線の可視化
-        Gizmos.color = Color.red;
-        Vector3 predictOrigin = transform. position + Vector3.up * 0.5f;
-        Gizmos.DrawLine(predictOrigin, predictOrigin + Vector3.down * (landingPredictionHeight + 0.5f));
+        if (currentState == PlayerActionState.Locomotion && !movement.IsGrounded)
+        {
+            ChangeState(PlayerActionState.Airborne);
+        }
+        else if (currentState == PlayerActionState.Airborne && movement.IsGrounded)
+        {
+            if (movement.ActualVerticalSpeed > 0.1f) return;
 
-        //GroundCheckの可視化
-        Gizmos.color = isGrounded ? new Color(1, 0, 0, 0.5f) : new Color(1, 1, 1, 0.5f);
-        Gizmos.DrawSphere(transform.position + groundCheckOffset, groundCheckRadius);
+            if (movement.CheckHardLanding())
+            {
+                ChangeState(PlayerActionState.HardLanding);
+                StartCoroutine(HardLandingRoutine());
+            }
+            else
+            {
+                ChangeState(PlayerActionState.Locomotion);
+            }
+        }
     }
 
-    #endregion
+    private void ChangeState(PlayerActionState newState)    //アニメーターのステートを更新
+    {
+        if (currentState == newState) return;
+        currentState = newState;
 
-    #region --- Input Actions ---
+        switch (currentState)
+        {
+            case PlayerActionState.Locomotion:
+                charAnim.PlayState(charAnim.Locomotion, 0.25f);
+                break;
+            case PlayerActionState.Airborne:
+                charAnim.PlayState(charAnim.Airborne, 0.1f);
+                break;
+            case PlayerActionState.HardLanding:
+                break;
+            case PlayerActionState.Dodge:
+            case PlayerActionState.Attack:
+                break;
+        }
+    }
+
+    private void UpdateGuardState()
+    {
+        if (currentState == PlayerActionState.Locomotion && CurrentPriority < ActionPriority.Attack)
+        {
+            IsGuarding = guardInput;
+        }
+        else
+        {
+            IsGuarding = false;
+        }
+
+        charAnim.SetGuarding(IsGuarding);
+
+        bool isGuardMoving = IsGuarding && (moveInput.magnitude > 0.1f) && !sprintInput;
+        charAnim.SetGuardMoving(isGuardMoving);
+    }
+
+    public void HandleGroundMovement()
+    {
+        if (CurrentPriority >= ActionPriority.Attack) return;
+
+        if (dodgeInput)
+        {
+            // クールダウンチェックなど
+            if (Time.time >= lastDodgeEndTime + dodgeCooldown)
+            {
+                int dodgeType = 0;
+                float inputMagnitude = moveInput.magnitude;
+                if (sprintInput && inputMagnitude > 0.1f)
+                {
+                    dodgeType = 2;
+                }
+                else if (inputMagnitude > 0.1f)
+                {
+                    dodgeType = 1;
+                }
+                PerformDodge(dodgeType);
+            }
+            
+            // 処理したのでフラグを下ろす
+            dodgeInput = false; 
+            return; // Dodgeを実行したら移動処理はしない
+        }
+        
+        float targetSpeed = 0f;
+        if (moveInput.magnitude > 0.1f)
+        {
+            if (IsGuarding)
+            {
+                targetSpeed = moveSettings.walkSpeed * 0.6f;
+            }
+            else
+            {
+                targetSpeed = sprintInput ? moveSettings.runSpeed : moveSettings.walkSpeed;
+            }
+        }
+
+        movement.GroundInputMove(targetDirection, targetSpeed, moveSettings.groundSmoothTime, moveSettings.rotationSpeed);
+    }
+
+    public void HandleAirborneMovement()
+    {
+        float controlSpeed = (moveInput.magnitude > 0.1f) ? moveSettings.airSpeed : 0f;
+        movement.AirInputMove(targetDirection, controlSpeed, moveSettings.rotationSpeed);
+    }
+
+    public void ReturnToLocomotion()
+    {
+        ChangeState(PlayerActionState.Locomotion);
+    }
+
+    //--- Helper Function ---
+
+    private void ProcessInput()
+    {
+        //カメラ基準の移動方向算出
+        if (moveInput.magnitude >= 0.1f)
+        {
+            Vector3 camForward = Vector3.Scale(cameraTransform.forward, new Vector3(1, 0, 1)).normalized;
+            Vector3 camRight = Vector3.Scale(cameraTransform.right, new Vector3(1, 0, 1)).normalized;
+            targetDirection = (camForward * moveInput.y + camRight * moveInput.x).normalized;
+        }
+        else
+        {
+            sprintInput = false;
+        }
+    }
+
+    // ---　優先度管理 ---
+
+    public bool TryExecuteAction(ActionPriority requestPriority)    //状態遷移していいかどうかチェックする関数
+    {
+        // 例外1: 回避中の回避は禁止（連打防止）
+        if (requestPriority == ActionPriority.Dodge && CurrentPriority == ActionPriority.Dodge) return false;
+        
+        // 例外2: 空中では回避できない（仕様による）
+        if (requestPriority == ActionPriority.Dodge && !movement.IsGrounded) return false;
+
+        // 例外3: 無敵中はダメージ無効
+        if (requestPriority == ActionPriority.Damage && combat.IsInvincible) return false;
+
+        // 基本ルール: 優先度が高いなら許可
+        if (requestPriority >= CurrentPriority)
+        {
+            CurrentPriority = requestPriority;
+            return true;
+        }
+        return false;
+    }
+
+    public void ResetPriority(ActionPriority myPriority)
+    {
+        if (CurrentPriority == myPriority)
+        {
+            CurrentPriority = ActionPriority.Idle;
+        }
+    }
+
+    //--- Input Actions ---
 
     public void OnMove(InputAction.CallbackContext context)
     {
-        moveInput = context.ReadValue<Vector2>();
+        moveInput = context.ReadValue<Vector2>();   //入力値を保存
+        Debug.Log($"moveInput: {moveInput.magnitude}"); //1が出力される
     }
 
     public void OnSprint(InputAction.CallbackContext context)
     {
-        isDashStriking = context.ReadValueAsButton();
+        if (context.performed)
+        {
+            sprintInput = !sprintInput;
+        }
     }
 
     public void OnJump(InputAction.CallbackContext context)
     {
-        if (context.performed && isGrounded && !IsAttacking() && !isDashStriking)
+        if (context.performed && currentState == PlayerActionState.Locomotion)
         {
-            verticalVelocity = Mathf.Sqrt(jumpForce * -2f * gravityValue);
-            animator.SetTrigger("Jump");
+            PerformJump();
+        }
+    }
+
+    public void OnDodge(InputAction.CallbackContext context)
+    {
+        if (context.performed)
+        {
+            dodgeInput = true;
+            dodgeInputTime = Time.time;
         }
     }
 
@@ -159,290 +354,202 @@ public class PlayerController : MonoBehaviour
     {
         if (context.performed)
         {
-            lastAttackInputTime = Time.time; // 選考入力時間を記録
-        }
-    }
-
-    public void OnDrain(InputAction.CallbackContext context)
-    {
-        if (context.performed && !isDashStriking) {
-            PerformDrain();
-        }
-    }
-
-    public void OnSpecialAttack(InputAction.CallbackContext context)
-    {
-        if (context.performed)
-        {
-            AttemptDashStrike();
-        }
-    }
-
-    #endregion
-
-    #region --- Movement Logic ---
-
-    private void HandleMovement()
-    {
-        bool isAttacking = IsAttacking();
-
-        if (!isAttacking)
-        {
-            // --- A. 通常時の移動処理 ---
-
-            //スケールの安定化（必要？）
-            if (playerModel != null) playerModel.localScale = Vector3.Lerp(playerModel.localScale, Vector3.one, Time.deltaTime * 10f);
-
-            //カメラ基準の移動方向算出
-            Vector3 targetDirection = Vector3.zero;
-            if (moveInput.magnitude >= 0.1f)
+            if (movement.IsGrounded && TryExecuteAction(ActionPriority.Attack))
             {
-                Vector3 camForward = Vector3.Scale(cameraTransform.forward, new Vector3(1, 0, 1)).normalized;
-                Vector3 camRight = Vector3.Scale(cameraTransform.right, new Vector3(1, 0, 1)).normalized;
-                targetDirection = (camForward * moveInput.y + camRight * moveInput.x).normalized;
+                ChangeState(PlayerActionState.Attack);
+                combat.PerformAttack();
             }
+        }
+    }
 
-            //速度設定
-            currentMaxSpeed = (isGrounded && isDashStriking) ? moveSpeed * dashSpeedMultiplier : moveSpeed;
+    public void OnGuard(InputAction.CallbackContext context)
+    {
+        if (context.performed) guardInput = true;
+        if (context.canceled) guardInput = false;
+    }
 
-            //スムージング
-            float targetSpeedVal = (moveInput.magnitude < 0.1f) ? 0f : currentMaxSpeed;
-            float dynamicSmoothTime = (moveInput.magnitude > 0.1f) ? movementSmoothTime : 0.001f;
+    // --- Action Execution ---
 
-            currentVelocity = Vector3.SmoothDamp(currentVelocity, targetDirection * targetSpeedVal, ref moveDirectionVelocity, dynamicSmoothTime);
+    private void PerformDodge(int dodgeType)    //Dodgeの命令を下す
+    {
+        if (!TryExecuteAction(ActionPriority.Dodge)) return;
+        ChangeState(PlayerActionState.Dodge);                       //ステート更新  
 
-            //回転処理(移動中のみ)
-            if (currentVelocity.magnitude > 0.1f)
-            {
-                Quaternion targetRotation = Quaternion.LookRotation(currentVelocity.normalized);
-                playerModel.rotation = Quaternion.Slerp(playerModel.rotation, targetRotation, rotationSpeed * Time.deltaTime);
-            }
+        if (dodgeType >= dodgeSettings.Length) dodgeType = 0;
+        DodgeSettings currentSettings = dodgeSettings[dodgeType];   //データ取得
+
+        Vector3 dodgeDir;
+        if (dodgeType == 0) {
+            dodgeDir = -transform.forward;
         }
         else
         {
-            // --- B. 攻撃中の処理（強制停止）---
-            currentVelocity = Vector3.zero;
-            moveDirectionVelocity = Vector3.zero;
+            dodgeDir = (moveInput.magnitude > 0.1f) ? targetDirection : transform.forward;
         }
 
-        // --- C. 最終適用(重力合成)--- 
-        Vector3 finalMove = currentVelocity;
-        finalMove.y = verticalVelocity; // 重力を合成
+        int animHash = (dodgeType == 2) ? charAnim.Dive :
+                       (dodgeType == 1) ? charAnim.Roll : charAnim.Backstep;
 
-        controller.Move(finalMove * Time.deltaTime);
+        float originalDuration = currentSettings.frameCount / 30f;
+        float speedMultiplier = originalDuration / currentSettings.duration;
+
+        charAnim.Animator.SetFloat("ActionSpeed", speedMultiplier);
+        charAnim.PlayState(animHash, 0.1f);
+
+        StartCoroutine(DodgeRoutine(dodgeDir, currentSettings));
     }
 
-    private void GroundCheck()
+    private void PerformJump()
     {
-        isGrounded = controller.isGrounded;
-        isGrounded = Physics.CheckSphere(transform.position + groundCheckOffset, groundCheckRadius, groundMask);
+        movement.ActJump();
+        ChangeState(PlayerActionState.Airborne);
+    }
 
-        // 接地時は重力をリセットする（これをしないと無限に加速して振動する）
-        if (isGrounded && verticalVelocity < 0)
+    // public void OnAttack(InputAction.CallbackContext context)
+    // {
+    //     if (context.performed)
+    //     {
+    //         combat.Attack();
+    //     }
+    // }
+
+    // public void OnDrain(InputAction.CallbackContext context)
+    // {
+    //     if (context.performed)
+    //     {
+    //         ability.UseDrain();
+    //     }
+    // }
+
+    private IEnumerator DodgeRoutine(Vector3 direction, DodgeSettings settings)  //Dodgeのコルーチン
+    {
+        //Player移動
+        float timer = 0f;
+        float activeDuration = settings.duration * (settings.moveEndRatio - settings.moveStartRatio);
+        float speed = (activeDuration > 0) ? (settings.distance / activeDuration) : 0f;
+
+        if (settings.hasInvincibility) combat.IsInvincible = true;
+
+        movement.StopImmediately();
+
+        while (timer < settings.duration)
         {
-            verticalVelocity = -2f; // 0ではなく-2にして、坂道などで浮かないように吸着させる
-        }
-    }
+            float ratio = timer / settings.duration;
+            bool isActive = ratio >= settings.moveStartRatio && ratio <= settings.moveEndRatio;
 
-    private void HandleGravity()
-    {
-        verticalVelocity += gravityValue * Time.deltaTime;
-    }
-
-    private bool IsAttacking()
-    {
-        return animator.GetCurrentAnimatorStateInfo(0).IsTag("Attack");
-    }
-
-    #endregion
-
-    #region --- Animation Logic ---
-
-    private void UpdateAnimator()
-    {
-        if (animator == null) return;
-
-        //速度(水平のみ)
-        float horizontalSpeed = new Vector3(controller.velocity.x, 0, controller.velocity.z).magnitude;
-        float currentSpeed = currentVelocity.magnitude;
-        animator.SetFloat("Speed", horizontalSpeed, 0.1f, Time.deltaTime);
-
-        //接地判定
-        if (isGrounded) lastGroundedTime = Time.time;
-        bool isGroundedForAnim = isGrounded || (Time.time - lastGroundedTime < fallingDelay);
-        animator.SetBool("IsGrounded", isGroundedForAnim);
-
-        bool isCloseToGround = false;
-        if (verticalVelocity < -0.1f && !isGrounded)
-        {
-            Vector3 rayOrigin = transform.position + Vector3.up * 0.5f;
-            float castRadius = controller.radius * 0.9f;
-            float castDist = landingPredictionHeight + 0.5f;
-
-            if (Physics.SphereCast(rayOrigin, castRadius, Vector3.down, out RaycastHit hit, castDist, groundMask) && verticalVelocity < 0)
+            if (isActive)
             {
-                isCloseToGround = true;
+                movement.ForceMove(direction * speed * Time.deltaTime);
             }
-        }
-        animator.SetBool("IsCloseToGround", isCloseToGround);
-    }
-
-    #endregion
-
-    #region --- Combat Logic (Combo) ---
-
-    private void CheckAttackCombo()
-    {
-        //選考入力の有効期限チェック
-        if (Time.time - lastAttackInputTime > inputBufferTime) return;
-
-        AnimatorStateInfo stateInfo = animator.GetCurrentAnimatorStateInfo(0);
-
-        if (stateInfo.IsTag("Attack"))  //攻撃アニメーションが再生中なら
-        {
-            //攻撃中：アニメーションが指定位置まで進んでいれば次を発動
-            if (stateInfo.normalizedTime >= attackCancelThreshold)
+            else
             {
-                animator.SetTrigger("Attack");
-                lastAttackInputTime = -1f;  //消費
+                if (settings.hasInvincibility) combat.SetInvincible(false);
             }
-        }
-        else if (isGrounded && !isDashStriking)
-        {
-            //通常時：即発動
-            animator.SetTrigger("Attack");
-            lastAttackInputTime = -1f;
-        }
-    }
 
-    #endregion
-
-    #region --- Ability: Drain ---
-
-    private void PerformDrain()
-    {
-        if (Time.time - lastDrainTime < drainCooldown) return;
-        lastDrainTime = Time.time;
-
-        // エフェクト生成
-        if (drainAreaEffect != null)
-        {
-            GameObject effect = Instantiate(drainAreaEffect, transform.position, Quaternion.identity);
-            float diameter = drainRadius * 2;
-            effect.transform.localScale = new Vector3(drainRadius * 2, effect.transform.localScale.y, diameter);
-            Destroy(effect, 0.5f);
-        }
-
-        //animator.SetTrigger("Drain");
-
-        Collider[] enemies = Physics.OverlapSphere(transform.position, drainRadius, enemyLayer);
-        foreach (Collider col in enemies)
-        {
-            EnemyDummy enemy = col.GetComponent<EnemyDummy>();
-            if (enemy != null)
-            {
-                enemy.OnDrain();
-
-                if (EnergyOrbPrefab != null)
-                {
-                    GameObject orb = Instantiate(EnergyOrbPrefab, col.transform.position + Vector3.up, Quaternion.identity);
-                    EnergyOrb orbScript = orb.GetComponent<EnergyOrb>();
-                    if (orbScript != null) orbScript.Initialize(this.transform);
-                }
-            }
-        }
-    }
-
-    public void AddEnergy(float amount)
-    {
-        currentEnergy += amount;
-        if (currentEnergy > maxEnergy) currentEnergy = maxEnergy;
-        if (currentEnergy < 0) currentEnergy = 0;
-
-        if (energyBar != null) energyBar.value = currentEnergy;
-    }
-
-    #endregion
-
-    #region --- Ability DashStrike ---
-
-    private void AttemptDashStrike()
-    {
-        if (currentEnergy >= strikeEnergyCost && isGrounded && !isDashStriking && !IsAttacking())
-        {
-            StartCoroutine(DashStrikeRoutine());
-        }
-        else
-        {
-            Debug.Log("今は技を出せない！");
-        }
-    }
-
-    private IEnumerator DashStrikeRoutine()
-    {
-        isDashStriking = true;
-        AddEnergy(-strikeEnergyCost);
-
-        animator.SetTrigger("DashStrike");
-
-        float startTime = Time.time;
-
-        Vector3 dashDirection = (playerModel != null) ? playerModel.forward : transform.forward;
-
-        RaycastHit hitInfo = new RaycastHit();  
-        bool hitSomething = false;
-
-        //突進フェーズ
-        while (Time.time < startTime + strikeDuration)
-        {
-            //高速移動
-            controller.Move(dashDirection * strikeDashSpeed * Time.deltaTime);
-            //衝突判定
-            if (Physics.SphereCast(playerModel.position + Vector3.up, 0.5f, dashDirection, out hitInfo, 1.0f, enemyLayer))
-            {
-                hitSomething = true;
-                break;  //衝突したら即爆発へ
-            }
+            timer += Time.deltaTime;
             yield return null;
         }
 
-        //爆発フェーズ
-        currentVelocity = Vector3.zero; //停止
+        lastDodgeEndTime = Time.time;
+        if (settings.hasInvincibility) combat.SetInvincible(false);
 
-        //敵にあたった時だけヒットストップ演出
-        if (hitSomething)
-        {
-            Time.timeScale = 0.1f;
-            yield return new WaitForSecondsRealtime(0.1f);
-            Time.timeScale = 1.0f;
-        }
-        
-        Vector3 explosionPosition = hitSomething ? hitInfo.point : transform.position + playerModel.forward * 2f;
+        ResetPriority(ActionPriority.Dodge);
+        ChangeState(PlayerActionState.Locomotion);
+    }
 
-        //エフェクト出す
-        if (explosionVFXPrefab != null)
-        {
-            GameObject vfx = Instantiate(explosionVFXPrefab, explosionPosition, Quaternion.identity);
-            Destroy(vfx, 2.0f);
-        }
+    private IEnumerator HardLandingRoutine()
+    {
+        movement.StopImmediately();
 
-        //吹き飛ばし
-        Collider[] hitColliders = Physics.OverlapSphere(explosionPosition, explosionRadius, enemyLayer);
-        foreach (Collider col in hitColliders)
+        if (dodgeInput)
         {
-            Rigidbody rb = col.GetComponent<Rigidbody>();
-            if (rb != null)
+            float timeSinceInput = Time.time - dodgeInputTime;
+            if (timeSinceInput > dodgeInputBufferTime)
             {
-                Vector3 knockbackDir = (col.transform.position - explosionPosition).normalized + Vector3.up * 0.5f;
-                rb.AddForce(knockbackDir * knockbackForce, ForceMode.Impulse);
+                dodgeInput = false;
             }
         }
 
-        //硬直時間
-        yield return new WaitForSeconds(0.2f);
+        if (dodgeInput)
+        {
+            dodgeInput = false;
+            PerformDodge(1);
+            yield break;
+        }
 
-        isDashStriking = false;
+        float originalDuration = landingSettings.frameCount / 30f;
+        float speedMultiplier = originalDuration / landingSettings.duration;
+
+        // 速度をセットしてから再生
+        charAnim.Animator.SetFloat("ActionSpeed", speedMultiplier);
+        charAnim.PlayState(charAnim.HardLanding, 0.1f);
+
+        float hardLandingDuration = landingSettings.duration;
+        float timer = 0f;
+
+        while (timer < hardLandingDuration)
+        {
+            if (timer <= landingSettings.inputAcceptanceWindow)
+            {
+                if (dodgeInput)
+                {
+                    dodgeInput = false;
+                    PerformDodge(1);
+                    yield break;
+                }
+            }
+            else
+            {
+                dodgeInput = false;
+            }
+
+            timer += Time.deltaTime;
+            yield return null;
+        }
+        dodgeInput = false;
+
+        // 4. 復帰
+        ChangeState(PlayerActionState.Locomotion);
+        charAnim.Animator.SetFloat("ActionSpeed", 1.0f);
     }
 
-    #endregion
+    private void OnDrawGizmosSelected()
+    {
+        // 実行中以外や、参照がない時はエラーになるので帰る
+        if (!Application.isPlaying || movement == null) return;
+        // 開始位置（地面に埋まらないように少し浮かせる）
+        Vector3 startPos = transform.position + Vector3.up * 1.0f;
+
+        // ------------------------------
+        // 1. 緑色：入力した方向 (Target Direction)
+        // ------------------------------
+        Gizmos.color = Color.green;
+        // 入力がある時だけ描画
+        if (moveInput.magnitude > 0.1f)
+        {
+            // 2mくらいの長さで線を引く
+            Vector3 inputLine = targetDirection * 2.0f;
+            Gizmos.DrawRay(startPos, inputLine);
+            
+            // 先端に球を描いてわかりやすくする
+            Gizmos.DrawWireSphere(startPos + inputLine, 0.1f);
+        }
+
+        // ------------------------------
+        // 2. 青色：実際の移動速度 (Actual Velocity)
+        // ------------------------------
+        Gizmos.color = Color.blue;
+        
+        // CharacterControllerの実際の速度を取得
+        Vector3 currentVelocity = movement.Controller.velocity;
+        
+        // 速度ベクトルのまま描画（速いほど長くなる）
+        Gizmos.DrawRay(startPos, currentVelocity);
+        
+        // ------------------------------
+        // 3. 赤色：体の向き (Facing Direction)
+        // ------------------------------
+        Gizmos.color = Color.red;
+        Gizmos.DrawRay(startPos, transform.forward * 1.5f);
+    }
 }

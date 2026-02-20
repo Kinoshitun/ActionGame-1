@@ -16,6 +16,15 @@
                     "initialStateCheck": true
                 },
                 {
+                    "name": "Sprint",
+                    "type": "Button",
+                    "id": "457fbcf5-1906-4389-8ad0-4dd869476349",
+                    "expectedControlType": "",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                },
+                {
                     "name": "Jump",
                     "type": "Button",
                     "id": "66845ecb-affc-4d36-bb95-9f9a0f4e01b3",
@@ -61,9 +70,18 @@
                     "initialStateCheck": false
                 },
                 {
-                    "name": "Evade/Dash",
+                    "name": "Dodge",
                     "type": "Button",
                     "id": "3b21c177-1a66-4305-8970-beed9f578c4d",
+                    "expectedControlType": "",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                },
+                {
+                    "name": "Guard",
+                    "type": "Button",
+                    "id": "5f545057-b3a0-4ede-9c21-c553bdc12826",
                     "expectedControlType": "",
                     "processors": "",
                     "interactions": "",
@@ -183,17 +201,6 @@
                 },
                 {
                     "name": "",
-                    "id": "6b1e276e-f0c4-4c69-9c0e-08f75c7e1e2a",
-                    "path": "<Mouse>/delta",
-                    "interactions": "",
-                    "processors": "",
-                    "groups": "",
-                    "action": "Look",
-                    "isComposite": false,
-                    "isPartOfComposite": false
-                },
-                {
-                    "name": "",
                     "id": "fcb13258-3966-4edd-93bf-b8aad13ee918",
                     "path": "<Gamepad>/rightStick",
                     "interactions": "",
@@ -205,67 +212,56 @@
                 },
                 {
                     "name": "",
-                    "id": "04567ed7-edca-4817-bef7-fa4e365ffc22",
-                    "path": "<Gamepad>/buttonWest",
+                    "id": "920eb9c3-f7a7-4c57-9934-fa065dc802b5",
+                    "path": "<Gamepad>/rightShoulder",
                     "interactions": "",
                     "processors": "",
                     "groups": "",
                     "action": "Attack",
-                    "isComposite": false,
-                    "isPartOfComposite": false
-                },
-                {
-                    "name": "",
-                    "id": "6aad71ed-9a7c-4396-bfaa-4cf4d749385a",
-                    "path": "<Mouse>/leftButton",
-                    "interactions": "",
-                    "processors": "",
-                    "groups": "",
-                    "action": "Attack",
-                    "isComposite": false,
-                    "isPartOfComposite": false
-                },
-                {
-                    "name": "",
-                    "id": "05e9b1e0-8eec-49b9-8bfc-b5fc2baad378",
-                    "path": "<Keyboard>/q",
-                    "interactions": "",
-                    "processors": "",
-                    "groups": "",
-                    "action": "Drain",
-                    "isComposite": false,
-                    "isPartOfComposite": false
-                },
-                {
-                    "name": "",
-                    "id": "f216a4a1-80ca-4797-be1c-ce87d986cb0a",
-                    "path": "<Gamepad>/leftShoulder",
-                    "interactions": "",
-                    "processors": "",
-                    "groups": "",
-                    "action": "Drain",
                     "isComposite": false,
                     "isPartOfComposite": false
                 },
                 {
                     "name": "",
                     "id": "6e1c3cf6-e687-4420-9883-9ad3f6205915",
-                    "path": "<Gamepad>/rightTrigger",
+                    "path": "<Gamepad>/buttonEast",
                     "interactions": "",
                     "processors": "",
                     "groups": "",
-                    "action": "Evade/Dash",
+                    "action": "Dodge",
                     "isComposite": false,
                     "isPartOfComposite": false
                 },
                 {
                     "name": "",
-                    "id": "e13942fc-1409-4404-a88a-d3879282f97b",
-                    "path": "<Keyboard>/alt",
+                    "id": "ca1c2871-fce7-400f-9348-d79ee51ad3ab",
+                    "path": "<Gamepad>/leftStickPress",
                     "interactions": "",
                     "processors": "",
                     "groups": "",
-                    "action": "Evade/Dash",
+                    "action": "Sprint",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "4880b347-e83d-45a5-9415-875b6dfc1e63",
+                    "path": "<Keyboard>/leftShift",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "Sprint",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "165d2698-299d-4651-ac9b-f2af48e3db47",
+                    "path": "<Gamepad>/leftShoulder",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "Guard",
                     "isComposite": false,
                     "isPartOfComposite": false
                 }
