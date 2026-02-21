@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -37,7 +38,7 @@ public class PlayerController : MonoBehaviour
     [SerializeField] private CharacterCombat combat;
     [SerializeField] private CharacterAbility ability;
 
-    [System.Serializable]
+    [Serializable]
     public struct DodgeSettings
     {
         public string name;           // わかりやすくするための名前 (Backstepなど)
@@ -51,7 +52,7 @@ public class PlayerController : MonoBehaviour
         public bool hasInvincibility;
     }
 
-    [System.Serializable]
+    [Serializable]
     public struct HardLandingSettings
     {
         public float duration;
@@ -59,7 +60,7 @@ public class PlayerController : MonoBehaviour
         public int frameCount;
     }
 
-    [System.Serializable]
+    [Serializable]
     public struct MovementSettings
     {
         [Header("Speed")]
@@ -87,6 +88,9 @@ public class PlayerController : MonoBehaviour
 
     [Header("Landing Config")]
     [SerializeField] private HardLandingSettings landingSettings;
+
+    [Header("Targeting")]
+    [SerializeField] private TargetingSystem targetingSystem;
 
     [Header("References")]
     [SerializeField] private Transform cameraTransform;
@@ -125,11 +129,18 @@ public class PlayerController : MonoBehaviour
         CheckAirborneState();
         UpdateGuardState();
 
+        bool isLockedOn = targetingSystem != null && targetingSystem.IsLockedOn;
+        charAnim.SetLockedOn(isLockedOn);
+
         // ステートを更新する処理、今自分が何をしているのか思い出す
         switch (currentState)
         {
             case PlayerActionState.Locomotion:
                 HandleGroundMovement();
+                if (isLockedOn && CurrentPriority < ActionPriority.Attack)
+                {
+                    HandleLockOnRotationAndAnimation();
+                }
                 break;
             case PlayerActionState.Airborne:
                 HandleAirborneMovement();
@@ -150,7 +161,15 @@ public class PlayerController : MonoBehaviour
             float animHorizontalSpeed = movement.ActualHorizontalSpeed;   //入力方向に投射した値をアニメーションのスピードとする
             if (moveInput.magnitude < 0.1f) animHorizontalSpeed = 0f;
             if (movement.IsGrounded) animVerticalSpeed = 0f;
-            charAnim.UpdateMovement(animHorizontalSpeed, animVerticalSpeed, movement.IsGrounded);
+
+            if (!isLockedOn)
+            {
+                charAnim.UpdateMovement(animHorizontalSpeed, animVerticalSpeed, movement.IsGrounded);
+            }
+            else
+            {
+                charAnim.UpdateMovement(0f, 0f, movement.IsGrounded);
+            }
         }
     }
 
@@ -227,19 +246,16 @@ public class PlayerController : MonoBehaviour
             {
                 int dodgeType = 0;
                 float inputMagnitude = moveInput.magnitude;
-                if (sprintInput && inputMagnitude > 0.1f)
+                bool isLockedOnTargeting = targetingSystem != null && targetingSystem.IsLockedOn;
+                if (sprintInput && inputMagnitude > 0.1f && !isLockedOnTargeting) dodgeType = 2;
+                else if (inputMagnitude > 0.1f) dodgeType = 1;
+                if ((dodgeType == 1 || dodgeType == 2) && targetDirection.sqrMagnitude > 0.001f)
                 {
-                    dodgeType = 2;
-                }
-                else if (inputMagnitude > 0.1f)
-                {
-                    dodgeType = 1;
+                    transform.rotation = Quaternion.LookRotation(targetDirection);
                 }
                 PerformDodge(dodgeType);
             }
-            
-            // 処理したのでフラグを下ろす
-            dodgeInput = false; 
+            dodgeInput = false;     // 処理したのでフラグを下ろす
             return; // Dodgeを実行したら移動処理はしない
         }
         
@@ -248,7 +264,7 @@ public class PlayerController : MonoBehaviour
         {
             if (IsGuarding)
             {
-                targetSpeed = moveSettings.walkSpeed * 0.6f;
+                targetSpeed = moveSettings.walkSpeed * 0.8f;
             }
             else
             {
@@ -256,7 +272,15 @@ public class PlayerController : MonoBehaviour
             }
         }
 
-        movement.GroundInputMove(targetDirection, targetSpeed, moveSettings.groundSmoothTime, moveSettings.rotationSpeed);
+        //ロックオン中は「移動方向への回転」を無効化（速度0）して、回転の綱引きを防ぐ！
+        float currentRotationSpeed = moveSettings.rotationSpeed;
+        bool isLockedOn = targetingSystem != null && targetingSystem.IsLockedOn;
+        if (isLockedOn)
+        {
+            currentRotationSpeed = 0f;
+        }
+
+        movement.GroundInputMove(targetDirection, targetSpeed, moveSettings.groundSmoothTime, currentRotationSpeed);
     }
 
     public void HandleAirborneMovement()
@@ -268,6 +292,53 @@ public class PlayerController : MonoBehaviour
     public void ReturnToLocomotion()
     {
         ChangeState(PlayerActionState.Locomotion);
+    }
+
+    public Vector3 GetAttackDirection()
+    {
+        // 1. ロックオン中なら敵の方向
+        if (targetingSystem != null && targetingSystem.IsLockedOn)
+        {
+            Vector3 dir = targetingSystem.CurrentTarget.position - transform.position;
+            dir.y = 0;
+            return dir.normalized;
+        }
+        // 2. 入力があれば入力の方向
+        else if (targetDirection.sqrMagnitude > 0.001f)
+        {
+            return targetDirection.normalized;
+        }
+        // 3. どちらもなければ今の自分の正面
+        return transform.forward;
+    }
+
+    public void RotateTowards(Vector3 direction, float speed)
+    {
+        if (direction.sqrMagnitude > 0.001f)
+        {
+            Quaternion targetRot = Quaternion.LookRotation(direction);
+            transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, speed * Time.deltaTime);
+        }
+    }
+
+    private void HandleLockOnRotationAndAnimation()
+    {
+        if (targetingSystem.CurrentTarget == null) return;
+
+        Vector3 dirToTarget = targetingSystem.CurrentTarget.position - transform.position;      // 敵の方向を向く
+        dirToTarget.y = 0; // 上下方向の傾きは無視する
+        if (dirToTarget.sqrMagnitude > 0.001f)
+        {
+            Quaternion targetRotation = Quaternion.LookRotation(dirToTarget);
+            transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, Time.deltaTime * 15f);    // 敵の方へ回転する
+        }
+
+        // 2. カニ歩き用のアニメーションパラメータを送る
+        // カメラが敵を向いているため、プレイヤーの入力（WASD/スティック）がそのままカニ歩きの方向と一致します
+        float moveX = moveInput.x;
+        float moveY = moveInput.y;
+
+        charAnim.UpdateLockOnMovement(moveX, moveY);
     }
 
     //--- Helper Function ---
@@ -322,7 +393,6 @@ public class PlayerController : MonoBehaviour
     public void OnMove(InputAction.CallbackContext context)
     {
         moveInput = context.ReadValue<Vector2>();   //入力値を保存
-        Debug.Log($"moveInput: {moveInput.magnitude}"); //1が出力される
     }
 
     public void OnSprint(InputAction.CallbackContext context)

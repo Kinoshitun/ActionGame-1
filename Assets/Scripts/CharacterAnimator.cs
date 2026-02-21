@@ -8,8 +8,11 @@ public class CharacterAnimator : MonoBehaviour
     private static readonly int AnimID_HorizontalSpeed = Animator.StringToHash("HorizontalSpeed");
     private static readonly int AnimID_VerticalSpeed = Animator.StringToHash("VerticalSpeed");
     private static readonly int AnimID_ActionSpeed = Animator.StringToHash("ActionSpeed");
-    private static readonly int AnimID_IsGuarding = Animator.StringToHash("IsGuarding"); // ★追加
-    // private static readonly int AnimID_IsGrounded = Animator.StringToHash("IsGrounded");
+    private static readonly int AnimID_IsGuarding = Animator.StringToHash("IsGuarding");
+
+    private static readonly int AnimID_MoveX = Animator.StringToHash("MoveX");
+    private static readonly int AnimID_MoveY = Animator.StringToHash("MoveY");
+    private static readonly int AnimID_IsLockedOn = Animator.StringToHash("IsLockedOn");
 
     private static readonly int LocomotionState = Animator.StringToHash("Locomotion");
     private static readonly int AirborneState = Animator.StringToHash("Airborne");
@@ -33,12 +36,12 @@ public class CharacterAnimator : MonoBehaviour
     public int Attack2 => AnimID_Attack2;
     public int Attack3 => AnimID_Attack3;
 
-    [Header("Guard Stance Offsets (手動調整用)")]
-    [Tooltip("★テスト用★ チェックを入れると歩き判定などを無視して常にオフセットを適用します！")]
-    public bool forceApplyOffset = false;
+    // [Header("Guard Stance Offsets (手動調整用)")]
+    // [Tooltip("★テスト用★ チェックを入れると歩き判定などを無視して常にオフセットを適用します！")]
+    // public bool forceApplyOffset = false;
     
-    [Tooltip("★テスト用★ チェックを入れると、回転の掛け算の順序を逆にします（相殺される場合用）")]
-    public bool useReverseMultiplication = false;
+    // [Tooltip("★テスト用★ チェックを入れると、回転の掛け算の順序を逆にします（相殺される場合用）")]
+    // public bool useReverseMultiplication = false;
 
     [Header("Guard Stance Offsets (手動調整用)")]
     [Tooltip("ガード中の腰のひねり補正")]
@@ -47,11 +50,25 @@ public class CharacterAnimator : MonoBehaviour
     public Vector3 guardLeftShoulderOffset = new Vector3(20f, 0f, -10f);
     [Tooltip("ガード中の左腕（盾）の角度補正")]
     public Vector3 guardLeftArmOffset = new Vector3(0f, -20f, 0f);
+    [Tooltip("ガード中の頭の角度補正")]
+    public Vector3 guardNeckOffset = new Vector3(0f, 0f, 0f);
+
+    [Header("Guard Strafe Offsets")]
+    [Tooltip("左移動時のオフセット")]
+    public Vector3 guardSpineLeftOffset;
+    public Vector3 guardLeftShoulderLeftOffset;
+    public Vector3 guardLeftArmLeftOffset;
+
+    [Tooltip("右移動時のオフセット")]
+    public Vector3 guardSpineRightOffset;
+    public Vector3 guardLeftShoulderRightOffset;
+    public Vector3 guardLeftArmRightOffset;
 
     [Header("Bones (インスペクターで手動アタッチ用)")]
     [SerializeField] private Transform spineBone;
     [SerializeField] private Transform leftShoulderBone;
     [SerializeField] private Transform leftArmBone;
+    [SerializeField] private Transform neckBone;
     [SerializeField] private bool isGuardingCurrent;
     [SerializeField] private bool isGuardMovingCurrent;
 
@@ -83,26 +100,53 @@ public class CharacterAnimator : MonoBehaviour
         // ブレンド値が0より大きい時だけ骨を曲げる（Slerpを使って滑らかに角度を足す）
         if (moveGuardBlend > 0.001f)
         {
+            float moveX = Animator.GetFloat(AnimID_MoveX);
+
+            Vector3 currentSpineOffset = guardSpineOffset;
+            Vector3 currentShoulderOffset = guardLeftShoulderOffset;
+            Vector3 currentArmOffset = guardLeftArmOffset;
+
+            if (moveX < -0.05f) 
+            {
+                float t = Mathf.Abs(moveX);
+                currentSpineOffset = Vector3.Lerp(guardSpineOffset, guardSpineLeftOffset, t);
+                currentShoulderOffset = Vector3.Lerp(guardLeftShoulderOffset, guardLeftShoulderLeftOffset, t);
+                currentArmOffset = Vector3.Lerp(guardLeftArmOffset, guardLeftArmLeftOffset, t);
+            }
+            else if (moveX > 0.05f) 
+            {
+                float t = Mathf.Abs(moveX);
+                currentSpineOffset = Vector3.Lerp(guardSpineOffset, guardSpineRightOffset, t);
+                currentShoulderOffset = Vector3.Lerp(guardLeftShoulderOffset, guardLeftShoulderRightOffset, t);
+                currentArmOffset = Vector3.Lerp(guardLeftArmOffset, guardLeftArmRightOffset, t);
+            }
+
             if (spineBone != null) 
             {
-                Quaternion offset = Quaternion.Euler(guardSpineOffset);
+                Quaternion offset = Quaternion.Euler(currentSpineOffset);
                 Quaternion blendOffset = Quaternion.Slerp(Quaternion.identity, offset, moveGuardBlend);
-                // ★掛け算の順序を切り替えられるようにする
-                spineBone.localRotation = useReverseMultiplication ? (blendOffset * spineBone.localRotation) : (spineBone.localRotation * blendOffset);
+                spineBone.localRotation = spineBone.localRotation * blendOffset;
             }
             
             if (leftShoulderBone != null) 
             {
-                Quaternion offset = Quaternion.Euler(guardLeftShoulderOffset);
+                Quaternion offset = Quaternion.Euler(currentShoulderOffset);
                 Quaternion blendOffset = Quaternion.Slerp(Quaternion.identity, offset, moveGuardBlend);
-                leftShoulderBone.localRotation = useReverseMultiplication ? (blendOffset * leftShoulderBone.localRotation) : (leftShoulderBone.localRotation * blendOffset);
+                leftShoulderBone.localRotation = leftShoulderBone.localRotation * blendOffset;
             }
                 
             if (leftArmBone != null) 
             {
-                Quaternion offset = Quaternion.Euler(guardLeftArmOffset);
+                Quaternion offset = Quaternion.Euler(currentArmOffset);
                 Quaternion blendOffset = Quaternion.Slerp(Quaternion.identity, offset, moveGuardBlend);
-                leftArmBone.localRotation = useReverseMultiplication ? (blendOffset * leftArmBone.localRotation) : (leftArmBone.localRotation * blendOffset);
+                leftArmBone.localRotation = leftArmBone.localRotation * blendOffset;
+            }
+
+            if (neckBone != null)
+            {
+                Quaternion offset = Quaternion.Euler(guardNeckOffset);
+                Quaternion blendOffset = Quaternion.Slerp(Quaternion.identity, offset, moveGuardBlend);
+                neckBone.localRotation = neckBone.localRotation * blendOffset;
             }
         }
     }
@@ -143,6 +187,21 @@ public class CharacterAnimator : MonoBehaviour
     public void SetGuardMoving(bool isMoving)
     {
         isGuardMovingCurrent = isMoving;
+    }
+
+    public void SetLockedOn(bool isLockedOn)
+    {
+        if (Animator != null)
+        {
+            Animator.SetBool(AnimID_IsLockedOn, isLockedOn);
+        }
+    }
+
+    public void UpdateLockOnMovement(float moveX, float moveY)
+    {
+        if (Animator == null) return;
+        Animator.SetFloat(AnimID_MoveX, moveX, 0.1f, Time.deltaTime);
+        Animator.SetFloat(AnimID_MoveY, moveY, 0.1f, Time.deltaTime);
     }
 
     // public void PlayHardLanding()

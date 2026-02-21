@@ -13,6 +13,17 @@ public class ThirdPersonCamera : MonoBehaviour
     [SerializeField] private float yMinLimit = -20f;
     [SerializeField] private float yMaxLimit = 80f;
 
+    [Header("Targeting")]
+    [SerializeField] private TargetingSystem targetingSystem;
+    [SerializeField] private float lockOnFollowSpeed = 10f;
+
+    // ★追加：見下ろし角度の最小値（これ以上カメラが下に行かなくなる）
+    [SerializeField] private float minLockOnAngleY = 15f; 
+    
+    // ★追加：ターゲット切り替えのクールダウン時間（連続で切り替わるのを防ぐ）
+    [SerializeField] private float switchTargetCooldown = 0.5f; 
+    private float lastSwitchTime = 0f;
+
     //Internal State
     private float currentX = 0f; //水平角度
     private float currentY = 0f; //垂直角度
@@ -21,19 +32,16 @@ public class ThirdPersonCamera : MonoBehaviour
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     void Start()
     {
-        //マウスカーソルを消してロックする（FPS/TPSの基本）
-        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.lockState = CursorLockMode.Locked;       //マウスカーソルを消してロックする
         Cursor.visible = false;
 
-        //ターゲット未設定ならタグで探すなどの保険
-        if (target == null)
+        if (target == null)     //ターゲット未設定ならタグで探すなどの保険
         {
             GameObject player = GameObject.FindGameObjectWithTag("Player");
             if (player != null) target = player.transform;
         }
     }
 
-    // Update is called once per frame
     void LateUpdate()
     {
         if (target == null) return;
@@ -44,10 +52,35 @@ public class ThirdPersonCamera : MonoBehaviour
 
     private void HandleRotation()
     {
-        //入力値に基づいて角度を加算
-        currentX += lookInput.x * sensitivity;
-        currentY -= lookInput.y * sensitivity; //Y入力は引くことで上に倒すと上を向く操作になる
+        if (targetingSystem != null && targetingSystem.IsLockedOn)
+        {
+            // ★右スティックが大きく倒されたら、ターゲット切り替えを実行する
+            if (Mathf.Abs(lookInput.x) > 0.5f && Time.time > lastSwitchTime + switchTargetCooldown)
+            {
+                targetingSystem.SwitchTarget(lookInput);
+                lastSwitchTime = Time.time;
+            }
 
+            // --- アングルの計算 ---
+            Vector3 targetCenter = targetingSystem.CurrentTarget.position; 
+            Vector3 myCenter = target.position + targetOffset;
+
+            Vector3 dirToTarget = (targetCenter - myCenter).normalized;
+            
+            float targetX = Mathf.Atan2(dirToTarget.x, dirToTarget.z) * Mathf.Rad2Deg;
+            float targetY = -Mathf.Asin(dirToTarget.y) * Mathf.Rad2Deg + 15f;
+            targetY = Mathf.Max(targetY, minLockOnAngleY);
+
+            currentX = Mathf.LerpAngle(currentX, targetX, Time.deltaTime * lockOnFollowSpeed);
+            currentY = Mathf.LerpAngle(currentY, targetY, Time.deltaTime * lockOnFollowSpeed);
+        }
+        else
+        {
+            //入力値に基づいて角度を加算
+            currentX += lookInput.x * sensitivity;
+            currentY -= lookInput.y * sensitivity; //Y入力は引くことで上に倒すと上を向く操作になる
+        }
+        
         //上下の角度制限
         currentY = Mathf.Clamp(currentY, yMinLimit, yMaxLimit);
     }
