@@ -22,7 +22,8 @@ public enum PlayerActionState
     Dodge,
     HardLanding,
     Stunned,
-    Attack
+    Attack,
+    Dead
 }
 
 /// <summary>
@@ -88,6 +89,10 @@ public class PlayerController : MonoBehaviour
 
     [Header("Landing Config")]
     [SerializeField] private HardLandingSettings landingSettings;
+
+    [Header("Combat Config")]
+    [SerializeField] private float guardKnockbackDistance = 1.0f;
+    [SerializeField] private float guardKnockbackDuration = 0.2f;
 
     [Header("Targeting")]
     [SerializeField] private TargetingSystem targetingSystem;
@@ -583,6 +588,71 @@ public class PlayerController : MonoBehaviour
         charAnim.Animator.SetFloat("ActionSpeed", 1.0f);
     }
 
+    public void OnGuardSuccess()
+    {
+        if (TryExecuteAction(ActionPriority.Recovery))
+        {
+            ChangeState(PlayerActionState.Stunned);
+            movement.StopImmediately();
+            StopAllCoroutines();
+
+            int guardHitHash = Animator.StringToHash("GuardHit");   //アニメーションを再生
+            charAnim.PlayState(guardHitHash, 0.1f);
+
+            StartCoroutine(GuardKnockBackRoutine(-transform.forward));
+
+            StartCoroutine(DamageRecoveryRoutine(0.3f, ActionPriority.Recovery));   //ガード硬直
+        }
+    }
+
+    public void OnDie()
+    {
+        if (TryExecuteAction(ActionPriority.Dead))
+        {
+            ChangeState(PlayerActionState.Dead);
+            movement.StopImmediately();
+            StopAllCoroutines();
+
+            int dieHash = Animator.StringToHash("Die");
+            charAnim.PlayState(dieHash, 0.1f);
+        }
+    }
+
+    public void OnTakeDamage()
+    {
+        if (TryExecuteAction(ActionPriority.Damage))    //優先度チェックで遷移可能か判断
+        {
+            ChangeState(PlayerActionState.Stunned);     //スタン状態に遷移
+            movement.StopImmediately();     //動きを止める
+            StopAllCoroutines();            //アニメーションを止める
+
+            int hitHash = Animator.StringToHash("Hit");
+            charAnim.PlayState(hitHash, 0.1f);
+            
+            StartCoroutine(DamageRecoveryRoutine(0.5f, ActionPriority.Damage));     // 被弾硬直
+        }
+    }
+
+    private IEnumerator DamageRecoveryRoutine(float duration, ActionPriority priorityToReset)
+    {
+        yield return new WaitForSeconds(duration);
+        ResetPriority(priorityToReset);
+        ReturnToLocomotion();
+    }
+
+    private IEnumerator GuardKnockBackRoutine(Vector3 direction)
+    {
+        float timer = 0f;
+        float speed = guardKnockbackDistance / guardKnockbackDuration;
+
+        while (timer < guardKnockbackDuration)
+        {
+            movement.ForceMove(direction * speed * Time.deltaTime);
+            timer += Time.deltaTime;
+            yield return null;
+        }
+    }
+
     private void OnDrawGizmosSelected()
     {
         // 実行中以外や、参照がない時はエラーになるので帰る
@@ -614,7 +684,7 @@ public class PlayerController : MonoBehaviour
         Vector3 currentVelocity = movement.Controller.velocity;
         
         // 速度ベクトルのまま描画（速いほど長くなる）
-        Gizmos.DrawRay(startPos, currentVelocity);
+        Gizmos.DrawRay(startPos, currentVelocity * 1.5f);
         
         // ------------------------------
         // 3. 赤色：体の向き (Facing Direction)

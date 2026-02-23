@@ -54,7 +54,7 @@ public class ThirdPersonCamera : MonoBehaviour
     {
         if (targetingSystem != null && targetingSystem.IsLockedOn)
         {
-            // ★右スティックが大きく倒されたら、ターゲット切り替えを実行する
+            // 右スティックが大きく倒されたら、ターゲット切り替えを実行する
             if (Mathf.Abs(lookInput.x) > 0.5f && Time.time > lastSwitchTime + switchTargetCooldown)
             {
                 targetingSystem.SwitchTarget(lookInput);
@@ -62,13 +62,13 @@ public class ThirdPersonCamera : MonoBehaviour
             }
 
             // --- アングルの計算 ---
-            Vector3 targetCenter = targetingSystem.CurrentTarget.position; 
+            Vector3 targetCenter = targetingSystem.GetTargetPosition(); 
             Vector3 myCenter = target.position + targetOffset;
 
             Vector3 dirToTarget = (targetCenter - myCenter).normalized;
             
             float targetX = Mathf.Atan2(dirToTarget.x, dirToTarget.z) * Mathf.Rad2Deg;
-            float targetY = -Mathf.Asin(dirToTarget.y) * Mathf.Rad2Deg + 15f;
+            float targetY = -Mathf.Asin(dirToTarget.y) * Mathf.Rad2Deg + 10f;
             targetY = Mathf.Max(targetY, minLockOnAngleY);
 
             currentX = Mathf.LerpAngle(currentX, targetX, Time.deltaTime * lockOnFollowSpeed);

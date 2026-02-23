@@ -1,4 +1,3 @@
-using JetBrains.Annotations;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -10,12 +9,15 @@ public class TargetingSystem : MonoBehaviour
 
     [Header("UI Marker")]
     [SerializeField] private RectTransform lockOnMarkerUI;
-    [SerializeField] private Vector3 markerOffset = new Vector3(0, 1.0f, 0);
 
     public Transform CurrentTarget { get; private set; }
     public bool IsLockedOn => CurrentTarget != null;
 
     private Camera mainCamera;
+    private Collider currentTargetCollider;
+    private IDamageable currentTargetDamageable;
+
+    private EnemyHealth currentEnemyHealth;     // 現在ロックオンしている敵のHealthスクリプトを記憶しておく
 
     void Start()
     {
@@ -23,21 +25,23 @@ public class TargetingSystem : MonoBehaviour
         if (lockOnMarkerUI != null) lockOnMarkerUI.gameObject.SetActive(false);
     }
 
-    // Update is called once per frame
     void Update()
     {
         if (IsLockedOn)
         {
+            bool isDead = currentTargetCollider != null && !currentTargetCollider.enabled;
+
             // 敵が遠ざかりすぎたり、消えたりしたらロックオン解除
-            if (Vector3.Distance(transform.position, CurrentTarget.position) > maxTargetRange || !CurrentTarget.gameObject.activeInHierarchy)
+            if (Vector3.Distance(transform.position, CurrentTarget.position) > maxTargetRange || 
+                !CurrentTarget.gameObject.activeInHierarchy ||
+                isDead)
             {
                 ClearTarget();
             }
-            // マーカーを敵の位置に追従させる処理
-            else if (lockOnMarkerUI != null && mainCamera != null)
+            else if (lockOnMarkerUI != null && mainCamera != null)  // マーカーを敵の位置に追従させる処理
             {
-                Vector3 targetPos = CurrentTarget.position + markerOffset; // 敵の中心座標＋高さ
-                Vector3 screenPos = mainCamera.WorldToScreenPoint(targetPos); // 画面の2D座標に変換
+                Vector3 targetCenter = GetTargetPosition();  // 敵の中心座標＋高さ
+                Vector3 screenPos = mainCamera.WorldToScreenPoint(targetCenter); // 画面の2D座標に変換
                 
                 if (screenPos.z > 0) // カメラの前にいる時だけ表示
                 {
@@ -73,6 +77,9 @@ public class TargetingSystem : MonoBehaviour
     {
         Collider[] colliders = Physics.OverlapSphere(transform.position, maxTargetRange, targetLayer);
         Transform bestTarget = null;
+        Collider bestCollider = null;
+        IDamageable bestDamageable = null; 
+
         float closestDistance = Mathf.Infinity;
         Vector2 screenCenter = new Vector2(0.5f, 0.5f);
 
@@ -81,7 +88,7 @@ public class TargetingSystem : MonoBehaviour
             IDamageable damageable = col.GetComponentInParent<IDamageable>();
             if (damageable != null && mainCamera != null)
             {
-                Vector3 viewportPos = mainCamera.WorldToViewportPoint(col.transform.position);
+                Vector3 viewportPos = mainCamera.WorldToViewportPoint(col.bounds.center);
                 
                 if (viewportPos.z > 0)
                 {
@@ -91,6 +98,8 @@ public class TargetingSystem : MonoBehaviour
                     {
                         closestDistance = distance;
                         bestTarget = col.transform;
+                        bestCollider = col;
+                        bestDamageable = damageable;
                     }
                 }
             }
@@ -99,6 +108,11 @@ public class TargetingSystem : MonoBehaviour
         if (bestTarget != null)
         {
             CurrentTarget = bestTarget;
+            currentTargetCollider = bestCollider;
+            currentTargetDamageable = bestDamageable;
+
+            currentEnemyHealth = currentTargetDamageable as EnemyHealth;
+            if (currentEnemyHealth != null) currentEnemyHealth.SetLockOnState(true);
         }
     }
 
@@ -106,13 +120,15 @@ public class TargetingSystem : MonoBehaviour
     {
         if (!IsLockedOn || mainCamera == null) return;
 
-        float switchDir = Mathf.Sign(inputDir.x);   // 入力方向（1: 右, -1: 左）
+        float switchDir = Mathf.Sign(inputDir.x);   // 入力方向(1: 右, -1: 左)
 
         Collider[] colliders = Physics.OverlapSphere(transform.position, maxTargetRange, targetLayer);
         Transform bestTarget = null;
+        Collider bestCollider = null;
+        IDamageable bestDamageable = null;
         float closestScreenDistance = Mathf.Infinity;
 
-        Vector3 currentViewportPos = mainCamera.WorldToViewportPoint(CurrentTarget.position);
+        Vector3 currentViewportPos = mainCamera.WorldToViewportPoint(GetTargetPosition());
 
         foreach (Collider col in colliders)
         {
@@ -122,7 +138,7 @@ public class TargetingSystem : MonoBehaviour
             if (damageable != null)
             {
                 // 現在のターゲットから見て、新しい敵が画面の左右どちらにいるかを計算
-                Vector3 targetViewportPos = mainCamera.WorldToViewportPoint(col.transform.position);
+                Vector3 targetViewportPos = mainCamera.WorldToViewportPoint(col.bounds.center);
 
                 if (targetViewportPos.z <= 0) continue;
                 
@@ -141,6 +157,8 @@ public class TargetingSystem : MonoBehaviour
                     {
                         closestScreenDistance = distance;
                         bestTarget = col.transform;
+                        bestCollider = col;
+                        bestDamageable = damageable;
                     }
                 }
             }
@@ -148,13 +166,44 @@ public class TargetingSystem : MonoBehaviour
 
         if (bestTarget != null)
         {
+            if (currentEnemyHealth != null) currentEnemyHealth.SetLockOnState(false);   // いままでロックオンしていた敵のHPバーを消す
+
             CurrentTarget = bestTarget;
+            currentTargetCollider = bestCollider;
+            currentTargetDamageable = bestDamageable;;
+
+            currentEnemyHealth = currentTargetDamageable as EnemyHealth;
+            if (currentEnemyHealth != null) currentEnemyHealth.SetLockOnState(true);
         }
     }
 
     public void ClearTarget()
     {
+        if (currentEnemyHealth != null)     // ロックオン解除時にHPバーを消す
+        {
+            currentEnemyHealth.SetLockOnState(false);
+            currentEnemyHealth = null;
+        }
+
         CurrentTarget = null;
+        currentTargetCollider = null;
+        currentTargetDamageable = null; 
+    }
+
+    public Vector3 GetTargetPosition()      // ターゲットの正確な中心座標を返すメソッド（カメラ等からも呼べるようにする）
+    {
+        if (currentTargetDamageable != null && currentTargetDamageable.TargetPoint != null)
+        {
+            return currentTargetDamageable.TargetPoint.position;
+        }
+        else if (currentTargetCollider != null)
+        {
+            return currentTargetCollider.bounds.center;
+        }
+        else if (CurrentTarget != null)
+        {
+            return CurrentTarget.position + Vector3.up * 1.0f; // フォールバック
+        }
+        return transform.position;
     }
 }
-

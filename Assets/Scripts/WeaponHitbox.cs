@@ -14,6 +14,15 @@ public class WeaponHitbox : MonoBehaviour
         hitboxCollider = GetComponent<Collider>();
         hitboxCollider.isTrigger = true;
         hitboxCollider.enabled = false;
+
+        Rigidbody rb = GetComponent<Rigidbody>();
+        if (rb == null)
+        {
+            rb = gameObject.AddComponent<Rigidbody>();
+        }
+        // 重力で落ちたり、何かにぶつかって吹き飛んだりしないようにする設定
+        rb.isKinematic = true; 
+        rb.useGravity = false;
     }
 
     public void Initialize(CharacterCombat combat)
@@ -51,17 +60,5 @@ public class WeaponHitbox : MonoBehaviour
                 combatController.TriggerHitStop();      // ヒットストップ実行
             }
         }
-    }
-
-    // Start is called once before the first execution of Update after the MonoBehaviour is created
-    void Start()
-    {
-        
-    }
-
-    // Update is called once per frame
-    void Update()
-    {
-        
     }
 }
