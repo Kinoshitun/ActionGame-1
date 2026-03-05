@@ -9,8 +9,8 @@ using UnityEngine;
 public class CharacterMovement : MonoBehaviour
 {
     [Header("Ground Check")]
-    [SerializeField] private float groundCheckRadius = 0.25f;
-    [SerializeField] private Vector3 groundCheckOffset = new Vector3(0, 0.1f, 0);
+    [SerializeField] private float groundCheckRadius = 0.4f;
+    [SerializeField] private Vector3 groundCheckOffset = new Vector3(0, 0.15f, 0);
     [SerializeField] private LayerMask groundMask;
 
     [Header("Jump")]
@@ -51,7 +51,7 @@ public class CharacterMovement : MonoBehaviour
     private Vector3 calculatedVelocity;
 
     // マジックナンバーの定数化
-    private const float GROUND_STICKING_VELOCITY = -0.5f;
+    private const float GROUND_STICKING_VELOCITY = -5.0f;
     private const float DIRECTION_THRESHOLD = 0.1f;
     private const float VELOCITY_LERP_SPEED = 20.0f;
 
@@ -121,7 +121,6 @@ public class CharacterMovement : MonoBehaviour
         currentFallDistance = 0;
     }
 
-    //DodgeやDashStrike用に強制的に動かすためのパブリックメソッド
     public void ForceMove(Vector3 motion)
     {
         Controller.Move(motion);
@@ -144,21 +143,6 @@ public class CharacterMovement : MonoBehaviour
         smoothDampVelocity = Vector3.zero;
         jumpMomentum = Vector3.zero;
     }
-
-    // public void OnLand()
-    // {
-    //     if (FallDistance > hardLandingHeightThreshold)
-    //     {
-    //         charAnim.PlayHardLanding();
-    //     }
-    //     else
-    //     {
-    //         if (currentRealHorizontalVelocity.magnitude < 0.1f)
-    //         {
-    //             charAnim.PlaySoftLanding();
-    //         }
-    //     }
-    // }
 
     public void ApplyRootMotion(Vector3 deltaPosition)
     {
